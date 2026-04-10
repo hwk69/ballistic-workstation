@@ -1018,6 +1018,7 @@ export default function App() {
   const [cmpHoverTip, setCmpHoverTip] = useState(null);
   const [histFilters, setHistFilters] = useState({});
   const [histSearch, setHistSearch] = useState("");
+  const [histSort, setHistSort] = useState("newest");
   const [widgetSizes, setWidgetSizes] = useState({});
   const [cmpWidgetSizes, setCmpWidgetSizes] = useState({});
   const [authed, setAuthed] = useState(false);
@@ -2108,10 +2109,14 @@ export default function App() {
   // ─── HISTORY ─────────────────────────────────────────────────────────────────
   if (phase === P.HISTORY) {
     const hasFilters = Object.keys(histFilters).length > 0 || histSearch.trim();
-    const histFiltered = [...log].reverse().filter(s => {
-      if (histSearch.trim() && !(s.config.sessionName || "").toLowerCase().includes(histSearch.trim().toLowerCase())) return false;
-      return Object.entries(histFilters).every(([k, v]) => s.config[k] === v);
-    });
+    const histFiltered = [...log]
+      .sort((a, b) => histSort === "newest"
+        ? new Date(b.date) - new Date(a.date)
+        : new Date(a.date) - new Date(b.date))
+      .filter(s => {
+        if (histSearch.trim() && !(s.config.sessionName || "").toLowerCase().includes(histSearch.trim().toLowerCase())) return false;
+        return Object.entries(histFilters).every(([k, v]) => s.config[k] === v);
+      });
 
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="840px">
@@ -2126,12 +2131,20 @@ export default function App() {
           <>
             {/* Filter bar */}
             <div className="mb-5">
-              <input
-                value={histSearch}
-                onChange={e => setHistSearch(e.target.value)}
-                placeholder="Search by session name…"
-                className={cn(inp, "text-sm mb-3")}
-              />
+              <div className="flex gap-2 mb-3">
+                <input
+                  value={histSearch}
+                  onChange={e => setHistSearch(e.target.value)}
+                  placeholder="Search by session name…"
+                  className={cn(inp, "text-sm flex-1")}
+                />
+                <button
+                  onClick={() => setHistSort(s => s === "newest" ? "oldest" : "newest")}
+                  className="text-[11px] font-semibold px-3 py-1 border cursor-pointer transition-all duration-100 shrink-0"
+                  style={{ background: '#111118', color: G, borderColor: '#111118' }}>
+                  {histSort === "newest" ? "Newest ↓" : "Oldest ↑"}
+                </button>
+              </div>
               {vars.length > 0 && (
                 <div className="flex flex-wrap gap-y-2 gap-x-5">
                   {vars.map(v => {
