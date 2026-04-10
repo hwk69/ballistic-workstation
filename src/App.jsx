@@ -10,11 +10,6 @@ import { GripVertical, Crosshair, BarChart2, History, X, Plus } from 'lucide-rea
 import { LoginScreen } from './components/LoginScreen.jsx';
 import * as db from './lib/db.js';
 
-// ─── Storage ──────────────────────────────────────────────────────────────────
-const SK="bw-vB",OK="bw-opts-vB",CVK="bw-cvars-vB",LK="bw-layout-vB",CK="bw-cmp-saves-vB";
-async function ld(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null;}catch{return null;}}
-async function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){console.error(e);}}
-
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
 const BG   = "#0b0b0f";
@@ -1017,18 +1012,22 @@ export default function App() {
   }, [layout, dispOpts, cmpMetrics, cmpWidgets]);
 
   const saveComparison = useCallback(async (title, slots, filters, by, metrics, widgets) => {
-    const name = title.trim() || `Comparison ${savedComparisons.length + 1}`;
-    const entry = { id: Date.now(), name, title, slots, filters, by, metrics, widgets };
-    const next = [...savedComparisons, entry];
-    setSavedComparisons(next);
-    await sv(CK, next);
-  }, [savedComparisons]);
+    try {
+      const saved = await db.saveComparison({ title, slots, filters, by, metrics, widgets });
+      setSavedComparisons(p => [saved, ...p]);
+    } catch (err) {
+      setDbError('Failed to save comparison: ' + err.message);
+    }
+  }, []);
 
   const deleteComparison = useCallback(async (id) => {
-    const next = savedComparisons.filter(c => c.id !== id);
-    setSavedComparisons(next);
-    await sv(CK, next);
-  }, [savedComparisons]);
+    try {
+      await db.deleteComparison(id);
+      setSavedComparisons(p => p.filter(c => c.id !== id));
+    } catch (err) {
+      setDbError('Failed to delete comparison: ' + err.message);
+    }
+  }, []);
 
   const loadComparison = useCallback((c) => {
     setCmpTitle(c.title || "");
