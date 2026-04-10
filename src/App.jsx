@@ -1736,6 +1736,44 @@ export default function App() {
     }).filter(Boolean);
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
     const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, velRanking: { label: "Best Velocity" }, accuracyRanking: { label: "Best Accuracy" } };
+    const mainItems    = cmpLayout.filter(item => item.zone === 'main');
+    const sidebarItems = cmpLayout.filter(item => item.zone === 'sidebar');
+    const fullItems    = cmpLayout.filter(item => item.zone === 'full');
+    const splitMap     = { '1/2': '50%', '2/3': '67%', '3/4': '75%' };
+    const mainWidth    = splitMap[cmpSplit];
+    const zoneLabel    = { main: 'M', sidebar: 'S', full: 'F' };
+
+    function renderWidget(item) {
+      const key = item.i;
+      const def = CMP_WIDGET_DEFS[key];
+      if (!def) return null;
+      return (
+        <div key={key} className="border-b border-border">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/40">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+              {def.label}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                className="zone-btn text-[10px] font-bold text-muted-foreground/60 hover:text-foreground px-1.5 py-0.5 rounded hover:bg-secondary transition-colors cursor-pointer bg-transparent border border-border"
+                onClick={() => cycleZone(key)}
+                title="Cycle zone: Main → Sidebar → Full">
+                {zoneLabel[item.zone]}
+              </button>
+              <button
+                className="rgl-remove-btn flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none"
+                onClick={() => removeWidget(key)}
+                title="Remove widget">
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+          <div className="p-4">
+            {renderWidgetContent(key)}
+          </div>
+        </div>
+      );
+    }
 
     const cmpSessions = resolved.map(r => ({
       name: r.session.config.sessionName || 'This Session',
@@ -1918,6 +1956,14 @@ export default function App() {
             <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpLayout)}>
               Save Comparison
             </Btn>
+            <Btn v="secondary" onClick={() => {
+              const opts = ['1/2', '2/3', '3/4'];
+              const next = opts[(opts.indexOf(cmpSplit) + 1) % opts.length];
+              setCmpSplit(next);
+              saveLayoutAll({ cmpSplit: next });
+            }} title="Toggle main/sidebar column split">
+              {cmpSplit}
+            </Btn>
             <Btn v="secondary" onClick={handleExport} disabled={resolved.length < 2}>
               Export Image
             </Btn>
@@ -2092,53 +2138,34 @@ export default function App() {
 
           {resolved.length >= 2 ? (
               <>
-                <div ref={rglContainerRef} className="p-3">
-                  <GridLayout
-                    layout={cmpLayout}
-                    cols={6}
-                    rowHeight={72}
-                    width={rglWidth}
-                    draggableHandle=".rgl-drag-handle"
-                    resizeHandles={['se']}
-                    onLayoutChange={handleLayoutChange}
-                    compactType="vertical"
-                    autoSize={true}
-                    margin={[8, 8]}
-                    containerPadding={[4, 4]}
-                  >
-                    {cmpLayout.map(item => {
-                      const key = item.i;
-                      const def = CMP_WIDGET_DEFS[key];
-                      if (!def) return null;
-                      return (
-                        <div key={key}>
-                          <div className="widget-panel h-full flex flex-col bg-card border border-border rounded-xl">
-                            <div className="widget-header flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40 shrink-0">
-                              <div className="rgl-drag-handle flex items-center gap-1.5 cursor-grab select-none">
-                                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{def.label}</span>
-                              </div>
-                              <button
-                                className="rgl-remove-btn flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none"
-                                onClick={() => removeFromLayout(key)}
-                                title="Remove widget">
-                                <X size={13} />
-                              </button>
-                            </div>
-                            <div className="widget-body flex-1 overflow-hidden p-4">
-                              {renderWidgetContent(key)}
-                            </div>
+                {/* Main + Sidebar row */}
+                {(mainItems.length > 0 || sidebarItems.length > 0) && (
+                  <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                    {mainItems.length > 0 && (
+                      <div style={{ width: sidebarItems.length > 0 ? mainWidth : '100%', flexShrink: 0 }}>
+                        {mainItems.map(item => renderWidget(item))}
+                      </div>
+                    )}
+                    {sidebarItems.length > 0 && (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--color-border)' }}>
+                        {sidebarItems.map(item => (
+                          <div key={item.i} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            {renderWidget(item)}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </GridLayout>
-                </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Full-width zone */}
+                {fullItems.map(item => renderWidget(item))}
+                {/* Add widget bar */}
                 {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpLayout.some(item => item.i === k)) && (
                   <div className="widget-add-bar p-5 border-t border-border flex justify-center">
                     <WidgetAdder
                       available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpLayout.some(item => item.i === k))}
                       labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
-                      onAdd={addToLayout} />
+                      onAdd={addWidget} />
                   </div>
                 )}
                 <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between">
