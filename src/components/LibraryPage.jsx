@@ -88,7 +88,7 @@ export function LibraryPage({ log, vars, preFilterSessionIds, onError }) {
   return (
     <div>
       {varFilterOptions.length > 0 && (
-        <div className="flex flex-wrap gap-x-5 gap-y-2 mb-6 p-4 bg-card border border-border rounded-xl">
+        <div className="export-hide flex flex-wrap gap-x-5 gap-y-2 mb-6 p-4 bg-card border border-border rounded-xl">
           {varFilterOptions.map(v => (
             <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{v.label}:</span>
@@ -140,13 +140,13 @@ export function LibraryPage({ log, vars, preFilterSessionIds, onError }) {
                   )}
                 </div>
                 <div className="px-2 py-1.5">
-                  <p className="text-[11px] text-foreground truncate font-medium">{att.file_name}</p>
+                  <p className="export-hide text-[11px] text-foreground truncate font-medium">{att.file_name}</p>
                   <p className="text-[10px] text-muted-foreground truncate">{att.session_name}</p>
-                  <p className="text-[10px] text-muted-foreground">{att.serial} · {new Date(att.created_at).toLocaleDateString()}</p>
+                  <p className="export-hide text-[10px] text-muted-foreground">{att.serial} · {new Date(att.created_at).toLocaleDateString()}</p>
                 </div>
                 <button
                   onClick={e => { e.stopPropagation(); handleDelete(att.id, att.storage_path); }}
-                  className="absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
+                  className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
                   ✕
                 </button>
               </div>

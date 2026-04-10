@@ -1802,7 +1802,7 @@ export default function App() {
     function renderWidgetContent(key) {
       if (key === 'overlay') return (
         <>
-          <div className="flex gap-1.5 mb-3 flex-wrap">
+          <div className="export-hide flex gap-1.5 mb-3 flex-wrap">
             {[["showCep","CEP",OC.cep],["showR90","R90",OC.r90],["showEllipse","Ellipse",OC.ellipse],["showMpi","MPI",OC.mpi]].map(([k,l,c]) => (
               <Toggle key={k} label={l} on={cmpDispOpts[k]} onToggle={() => setCmpDispOpts(p => ({ ...p, [k]: !p[k] }))} color={c} />
             ))}
@@ -1823,14 +1823,14 @@ export default function App() {
       );
       if (key === 'metrics' && activeMetrics.length) return (
         <>
-          <div className="flex justify-end mb-2">
+          <div className="export-hide flex justify-end mb-2">
             <button onClick={() => setCmpMetricsOpen(o => !o)}
               className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
               {cmpMetricsOpen ? "Done" : "Edit metrics"}
             </button>
           </div>
           {cmpMetricsOpen && (
-            <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
+            <div className="export-hide flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
               {ALL_METRICS.map(([label]) => (
                 <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
               ))}
@@ -1986,12 +1986,13 @@ export default function App() {
               onFocus={e => e.target.style.color = '#fff'}
             />
             <p className="text-[10px] mt-0.5 font-medium m-0" style={{ color: 'rgba(255,255,255,0.3)' }}>
-              {resolved.length > 0 ? `${resolved.length} session${resolved.length !== 1 ? "s" : ""}  ·  ` : ""}click to edit title
+              {resolved.length > 0 ? `${resolved.length} session${resolved.length !== 1 ? "s" : ""}` : ""}
+              <span className="export-hide">{resolved.length > 0 ? "  ·  " : ""}click to edit title</span>
             </p>
           </div>
 
           {/* Session picker */}
-          <div className="bg-secondary border-b border-border">
+          <div className="export-hide bg-secondary border-b border-border">
             <button
               onClick={() => setCmpPickerOpen(o => !o)}
               className="w-full flex items-center justify-between px-6 py-3 cursor-pointer bg-transparent border-none hover:bg-accent/20 transition-colors">

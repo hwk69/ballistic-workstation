@@ -112,3 +112,4 @@ button { font-family: inherit; }
 .export-root.export-mode .zone-btn { display: none; }
 .export-root.export-mode .rgl-remove-btn { display: none; }
 .export-root.export-mode .widget-add-bar { display: none; }
+.export-root.export-mode .export-hide { display: none; }
