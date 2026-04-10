@@ -111,22 +111,50 @@ export async function updateSession(id, { config, shots: shotData }) {
     .eq('id', id);
   if (ue) throw ue;
 
-  // Delete old shots (cascade doesn't help here — we need to replace)
-  const { error: de } = await supabase.from('shots').delete().eq('session_id', id);
-  if (de) throw de;
+  // Preserve existing shot IDs so attachment foreign keys stay valid.
+  // Shots that already have an id are updated in place; new shots are inserted;
+  // shots removed from the list are deleted.
+  const existing = shotData.filter(sh => sh.id);
+  const toInsert = shotData.filter(sh => !sh.id);
 
-  const shotsToInsert = shotData.map(sh => ({
-    session_id: id,
-    serial: sh.serial,
-    x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight,
-    shot_num: sh.shotNum, timestamp: sh.timestamp,
-  }));
+  // Fetch current shot ids to find any that were deleted
+  const { data: currentShots } = await supabase.from('shots').select('id').eq('session_id', id);
+  const existingIds = new Set(existing.map(sh => sh.id));
+  const toDelete = (currentShots || []).map(sh => sh.id).filter(sid => !existingIds.has(sid));
 
-  const { data: savedShots, error: she } = await supabase
-    .from('shots')
-    .insert(shotsToInsert)
-    .select();
-  if (she) throw she;
+  if (toDelete.length) {
+    const { error: de } = await supabase.from('shots').delete().in('id', toDelete);
+    if (de) throw de;
+  }
+
+  const updateResults = await Promise.all(existing.map(sh =>
+    supabase.from('shots')
+      .update({ serial: sh.serial, x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight, shot_num: sh.shotNum, timestamp: sh.timestamp })
+      .eq('id', sh.id)
+      .select()
+      .single()
+  ));
+  for (const r of updateResults) if (r.error) throw r.error;
+
+  let insertedShots = [];
+  if (toInsert.length) {
+    const { data: ins, error: she } = await supabase
+      .from('shots')
+      .insert(toInsert.map(sh => ({
+        session_id: id,
+        serial: sh.serial,
+        x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight,
+        shot_num: sh.shotNum, timestamp: sh.timestamp,
+      })))
+      .select();
+    if (she) throw she;
+    insertedShots = ins || [];
+  }
+
+  const updatedShots = [
+    ...updateResults.map(r => r.data),
+    ...insertedShots,
+  ].sort((a, b) => (a.shot_num || 0) - (b.shot_num || 0));
 
   const { data: session, error: se } = await supabase
     .from('sessions')
@@ -139,7 +167,7 @@ export async function updateSession(id, { config, shots: shotData }) {
     id: session.id,
     date: session.created_at,
     config: session.config,
-    shots: (savedShots || []).sort((a, b) => (a.shot_num || 0) - (b.shot_num || 0)).map(sh => ({
+    shots: updatedShots.map(sh => ({
       id: sh.id,
       fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight,
       serial: sh.serial, shotNum: sh.shot_num, timestamp: sh.timestamp,

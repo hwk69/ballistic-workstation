@@ -6,7 +6,7 @@ import { useScroll } from "@/components/use-scroll";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
-import { GripVertical, Crosshair, BarChart2, History, X, Plus } from 'lucide-react';
+import { GripVertical, Crosshair, BarChart2, History, X, Plus, Paperclip } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
@@ -14,15 +14,15 @@ import * as db from './lib/db.js';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
-const BG   = "#0b0b0f";
-const SURF = "#131318";
-const SURF2= "#1b1b22";
-const BD   = "rgba(255,255,255,0.07)";
-const BD_HI= "rgba(255,255,255,0.13)";
-const TX   = "#ededf2";
-const TX2  = "#8a8a9e";
-const FONT = "'Geist Variable', system-ui, sans-serif";
-// Chart-specific
+const BG   = "#f7f7fa";
+const SURF = "#ffffff";
+const SURF2= "#f0f0f4";
+const BD   = "rgba(0,0,0,0.09)";
+const BD_HI= "rgba(0,0,0,0.16)";
+const TX   = "#111118";
+const TX2  = "#6b6b7e";
+const FONT = "'Inter Variable', system-ui, sans-serif";
+// Chart-specific — charts stay dark for contrast
 const CHART_BG = "#0f0f14";
 const GRID_CLR = "rgba(255,255,255,0.10)";
 const AXIS_CLR = "rgba(255,255,255,0.40)";
@@ -80,9 +80,9 @@ function exportJson(log){dl(JSON.stringify(log,null,2),"Ballistic_All.json","app
 function countOverlaps(shots){const m={};shots.forEach(s=>{const k=`${s.x},${s.y}`;m[k]=(m[k]||0)+1;});return m;}
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
-const inp = "w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none transition-colors";
+const inp = "w-full border border-input bg-secondary px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-foreground/30 focus:outline-none transition-colors rounded-none";
 // card: still used for inline overrides (borderColor, etc.)
-const card = { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 };
+const card = { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 2 };
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Btn({ children, onClick, v = "primary", disabled, cls = "" }) {
@@ -110,10 +110,10 @@ function MetricTip({ label, children }) {
         <div style={{
           position: "fixed", left: tip.x + 14, top: tip.y - 10,
           pointerEvents: "none", zIndex: 300,
-          background: "#1b1b22", border: "1px solid rgba(255,255,255,0.13)",
-          borderRadius: 8, padding: "10px 13px", fontSize: 11, lineHeight: 1.7,
-          color: "#ededf2", maxWidth: 270,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          background: "#111118", border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 2, padding: "10px 13px", fontSize: 11, lineHeight: 1.7,
+          color: "#f0f0f8", maxWidth: 270,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
         }}>
           <div style={{ color: G, fontWeight: 600, marginBottom: 4 }}>{label}</div>
           <div style={{ color: TX2, marginBottom: 8, whiteSpace: "normal" }}>{info.desc}</div>
@@ -136,26 +136,32 @@ function SB({ label, value, gold, accentColor, onClick, active }) {
   return (
     <div
       className={cn(
-        "relative border border-border rounded-lg p-3.5 border-l-2 transition-all duration-200",
+        "relative rounded-lg p-4 transition-all duration-200 overflow-hidden",
         linked ? "cursor-pointer select-none" : "",
-        linked && active  && "border-opacity-60",
-        linked && !active && "opacity-40 hover:opacity-70",
+        linked && active  && "",
+        linked && !active && "opacity-35 hover:opacity-65",
       )}
       style={{
-        borderLeftColor: ac || "rgba(255,255,255,0.12)",
-        background: linked && active && accentColor ? accentColor + "10" : "var(--color-secondary)",
+        background: linked && active && accentColor
+          ? accentColor + "12"
+          : "var(--color-secondary)",
+        border: "1px solid",
+        borderColor: ac
+          ? ac + "30"
+          : "var(--color-border)",
+        borderTop: `2px solid ${ac || "rgba(255,255,255,0.08)"}`,
       }}
       onClick={onClick}>
       {linked && (
         <span
           className="absolute top-3 right-3 size-1.5 rounded-full transition-all duration-200"
-          style={{ background: active ? accentColor : "rgba(255,255,255,0.18)" }} />
+          style={{ background: active ? accentColor : "rgba(255,255,255,0.12)" }} />
       )}
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] mb-2"
+      <div className="text-[9px] font-bold uppercase tracking-[0.16em] mb-2.5"
         style={{ color: ac || "var(--color-muted-foreground)" }}>
         <MetricTip label={label}>{label}</MetricTip>
       </div>
-      <div className="text-[17px] font-bold font-mono leading-none" style={{ color: ac || "var(--color-foreground)" }}>
+      <div className="text-[22px] font-bold font-mono leading-none tabular-nums" style={{ color: ac || "var(--color-foreground)" }}>
         {value}
       </div>
     </div>
@@ -271,6 +277,46 @@ function ColorPicker({ color, onChange }) {
         padding: "6px 10px", fontSize: 12, fontWeight: 600, minWidth: 88, cursor: "pointer" }}>
       {PALETTE.map((c, i) => <option key={c} value={c} style={{ color: c, background: "#111" }}>{names[i]}</option>)}
     </select>
+  );
+}
+
+function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, onError }) {
+  const fileRef = useRef();
+  const [uploading, setUploading] = useState(false);
+  const [doneCount, setDoneCount] = useState(0);
+  const total = pendingCount + doneCount;
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    e.target.value = '';
+    if (onQueue) { onQueue(serial, files); return; }
+    setUploading(true);
+    try {
+      for (const file of files) await db.uploadAttachment(file, shotId, sessionId);
+      setDoneCount(c => c + files.length);
+    } catch (err) {
+      onError?.('Upload failed: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <input ref={fileRef} type="file" multiple accept="image/*,video/*,.pdf" onChange={handleFiles} style={{ display: 'none' }} />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading || (!onQueue && !shotId)}
+        title={`Attach file to ${serial}`}
+        className="inline-flex items-center gap-1 cursor-pointer bg-transparent border-none disabled:opacity-30 transition-colors"
+        style={{ color: total > 0 ? G : '#aaa' }}
+        onMouseEnter={e => { if (!uploading) e.currentTarget.style.color = '#111'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = total > 0 ? G : '#aaa'; }}>
+        {uploading ? <span className="text-[10px] font-bold">…</span> : <Paperclip size={11} strokeWidth={2} />}
+        {total > 0 && <span className="text-[9px] font-black">{total}</span>}
+      </button>
+    </span>
   );
 }
 
@@ -818,13 +864,14 @@ const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY:
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 function SecLabel({ children, className = "" }) {
-  return <div className={cn("text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", className)}>{children}</div>;
+  return <div className={cn("text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70", className)}>{children}</div>;
 }
 function CardSection({ title, children, style = {}, className = "" }) {
   return (
     <div className={cn("bg-card border border-border rounded-lg p-6", className)} style={style}>
       {title && (
-        <div className="mb-4 pb-3 border-b border-border">
+        <div className="mb-5 pb-3.5 border-b border-border flex items-center gap-2">
+          <span className="w-1 h-3.5 shrink-0" style={{ background: G }} />
           <SecLabel>{title}</SecLabel>
         </div>
       )}
@@ -849,9 +896,12 @@ function Empty({ children, icon, action }) {
 // ─── Stable layout components (defined at module scope to avoid remount on re-render) ──
 function PageHead({ title, sub }) {
   return (
-    <div className="mb-8">
-      <h1 className="text-[26px] font-bold tracking-tight text-foreground mb-1.5 leading-tight">{title}</h1>
-      {sub && <p className="text-[13px] text-muted-foreground">{sub}</p>}
+    <div className="mb-8 flex items-start gap-4">
+      <div className="w-[3px] self-stretch shrink-0" style={{ background: G, minHeight: 36 }} />
+      <div>
+        <h1 className="text-[30px] font-bold tracking-tight text-foreground mb-1 leading-tight">{title}</h1>
+        {sub && <p className="text-[13px] text-muted-foreground">{sub}</p>}
+      </div>
     </div>
   );
 }
@@ -864,24 +914,24 @@ function TblInput({ value, onChange }) {
 }
 
 function AppNavBar({ phase, navItems, sessionCount }) {
-  const scrolled = useScroll(10);
   return (
-    <header className={cn(
-      "sticky top-0 z-50 w-full border-b transition-[background,border-color,backdrop-filter] duration-300",
-      scrolled
-        ? "bg-background/95 supports-[backdrop-filter]:bg-background/80 border-border backdrop-blur-md"
-        : "bg-background border-border/50"
-    )}>
-      <nav className="mx-auto flex h-14 w-full max-w-6xl items-stretch justify-between px-7">
+    <header className="sticky top-0 z-50 w-full" style={{ background: "#111118", borderBottom: "1px solid #222230" }}>
+      <nav className="mx-auto flex h-[52px] w-full max-w-6xl items-stretch justify-between px-6">
         {/* Wordmark */}
-        <div className="flex items-center gap-2 shrink-0 pr-6">
-          <Crosshair size={14} className="text-primary shrink-0" strokeWidth={2.5} />
-          <span className="text-[13px] font-bold tracking-[0.14em] uppercase text-foreground">
-            Ballistic
-          </span>
+        <div className="flex items-center gap-3 shrink-0 pr-6" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ color: "#FFDF00" }} className="shrink-0">
+            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
+            <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="1" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="8" y1="1" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5"/>
+          </svg>
+          <div className="flex items-center gap-1.5 leading-none">
+            <span className="text-[11px] font-black tracking-[0.22em] uppercase px-1.5 py-0.5" style={{ background: "#FFDF00", color: "#000" }}>AXON</span>
+            <span className="text-[11px] font-bold tracking-[0.18em] uppercase" style={{ color: "rgba(255,255,255,0.55)" }}>BALLISTIC</span>
+          </div>
         </div>
-        {/* Nav items with gold bottom-border active indicator */}
-        <div className="flex items-stretch flex-1">
+        {/* Nav items */}
+        <div className="flex items-stretch flex-1 pl-2">
           {navItems.map(item => {
             const isActive = phase === item.ph;
             return (
@@ -890,25 +940,23 @@ function AppNavBar({ phase, navItems, sessionCount }) {
                 disabled={item.disabled}
                 onClick={item.disabled ? undefined : item.onClick}
                 className={cn(
-                  "relative px-3.5 text-[13px] font-medium transition-colors duration-150 cursor-pointer",
+                  "relative px-3.5 text-[11px] font-bold uppercase tracking-[0.1em] transition-colors duration-150 cursor-pointer",
                   "bg-transparent border-0 outline-none",
-                  isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                  item.disabled && "opacity-25 cursor-not-allowed pointer-events-none"
-                )}>
+                  item.disabled && "opacity-20 cursor-not-allowed pointer-events-none"
+                )}
+                style={{ color: isActive ? "#ffffff" : "rgba(255,255,255,0.38)" }}>
                 {item.label}
                 {isActive && (
-                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
+                  <span className="absolute bottom-0 left-1 right-1 h-[2px]" style={{ background: "#FFDF00" }} />
                 )}
               </button>
             );
           })}
         </div>
         {/* Session count */}
-        <div className="flex items-center shrink-0 pl-6">
-          <span className="text-[11px] font-medium tracking-wider text-muted-foreground/60 uppercase">
-            {sessionCount} {sessionCount === 1 ? "Session" : "Sessions"}
+        <div className="flex items-center shrink-0 pl-5" style={{ borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+          <span className="text-[10px] font-bold tracking-[0.16em] uppercase" style={{ color: "rgba(255,255,255,0.22)" }}>
+            {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
           </span>
         </div>
       </nav>
@@ -976,6 +1024,10 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [dbError, setDbError] = useState(null);
   const [libraryFilterSessionIds, setLibraryFilterSessionIds] = useState(null);
+  const [pendingAttachments, setPendingAttachments] = useState({}); // { serial: File[] }
+  const queueAttachment = useCallback((serial, files) => {
+    setPendingAttachments(p => ({ ...p, [serial]: [...(p[serial] || []), ...files] }));
+  }, []);
   const [hasAttachments, setHasAttachments] = useState(false);
 
   // Auto-deselect sessions that no longer match active filters
@@ -996,8 +1048,16 @@ export default function App() {
         db.getComparisons(),
         db.getAttachments(),
       ]);
-      if (settings.opts)   setOpts(p => ({ ...p, ...settings.opts }));
-      if (settings.vars)   setVars(settings.vars);
+      if (settings.opts && Object.keys(settings.opts).length) {
+        setOpts(p => {
+          const merged = { ...p };
+          Object.entries(settings.opts).forEach(([k, v]) => {
+            if (Array.isArray(v) && v.length) merged[k] = v;
+          });
+          return merged;
+        });
+      }
+      if (settings.vars?.length) setVars(settings.vars);
       if (settings.layout) {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
@@ -1092,9 +1152,20 @@ export default function App() {
     const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
     try {
       const saved = await db.saveSession({ config: { ...cfg, sessionName: name }, shots: [...shots] });
+      // Upload any queued attachments, matching by serial number
+      const pending = Object.entries(pendingAttachments);
+      if (pending.length > 0) {
+        await Promise.allSettled(
+          pending.flatMap(([serial, files]) => {
+            const shot = saved.shots.find(sh => sh.serial === serial);
+            return files.map(file => db.uploadAttachment(file, shot?.id ?? null, saved.id));
+          })
+        );
+      }
       const entry = { ...saved, stats: calcStats(saved.shots) };
       setLog(p => [entry, ...p]);
       setViewId(saved.id);
+      setPendingAttachments({});
       setPhase(P.RESULTS);
     } catch (err) {
       setDbError('Failed to save session: ' + err.message);
@@ -1165,7 +1236,7 @@ export default function App() {
     { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
     { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
     { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
-    { label: "Library", ph: P.LIBRARY, disabled: !hasAttachments, onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
+    { label: "Library", ph: P.LIBRARY, onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
 
 
@@ -1219,7 +1290,10 @@ export default function App() {
                   className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
               </div>
             : <button onClick={() => setAdding(true)}
-                className="text-primary text-xs font-semibold cursor-pointer bg-transparent border-none p-0 hover:text-primary/80 transition-colors">
+                className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
+                style={{ color: TX2 }}
+                onMouseEnter={e => e.target.style.color = TX}
+                onMouseLeave={e => e.target.style.color = TX2}>
                 + Add Variable
               </button>
           }
@@ -1335,11 +1409,11 @@ export default function App() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      {["#","Serial","FPS","X","Y","Rad","Time",""].map(h => (
+                      {["#","Serial","FPS","X","Y","Rad","Time","📎",""].map(h => (
                         <th key={h} className={cn(
                           "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5",
                           ["FPS","X","Y","Rad"].includes(h) ? "text-right" : "text-left"
-                        )}>{h}</th>
+                        )}>{h === "📎" ? "" : h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1371,6 +1445,13 @@ export default function App() {
                             <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.y}</td>
                             <td className="text-muted-foreground px-2 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
                             <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                            <td className="px-2 py-1.5">
+                              <ShotAttachBtn
+                                serial={s.serial}
+                                pendingCount={(pendingAttachments[s.serial] || []).length}
+                                onQueue={queueAttachment}
+                                onError={setDbError} />
+                            </td>
                             <td className="px-2 py-1.5 text-right whitespace-nowrap">
                               <button onClick={() => startEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
                               <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
@@ -1410,14 +1491,16 @@ export default function App() {
         {/* Results card */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           {/* Session header */}
-          <div className="bg-primary px-6 py-[18px] flex items-center justify-between">
+          <div className="px-6 py-5 flex items-center justify-between" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-black mb-0.5">{s.config.sessionName || "Session"}</h1>
-              <p className="text-xs font-medium text-black/50 m-0">{cfgLine}</p>
+              <div className="text-[9px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color: "rgba(255,255,255,0.3)" }}>Session Results</div>
+              <h1 className="text-[18px] font-bold leading-tight" style={{ color: "#ffffff" }}>{s.config.sessionName || "Session"}</h1>
+              {cfgLine && <p className="text-[11px] mt-0.5 m-0" style={{ color: "rgba(255,255,255,0.4)" }}>{cfgLine}</p>}
             </div>
             <div className="text-right">
-              <div className="text-black/50 text-[11px] font-semibold uppercase tracking-wide">{s.config.date}</div>
-              <div className="text-black text-[15px] font-bold mt-0.5">{vs.length} shots</div>
+              <div className="text-[9px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color: "rgba(255,255,255,0.3)" }}>{s.config.date}</div>
+              <div className="text-[32px] font-black leading-none tabular-nums" style={{ color: G }}>{vs.length}</div>
+              <div className="text-[9px] font-bold uppercase tracking-wider mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>shots</div>
             </div>
           </div>
 
@@ -1432,11 +1515,11 @@ export default function App() {
                   fullWidth ? "lg:col-span-2" : null,
                   (!fullWidth && idx % 2 === 0) ? "border-r border-border" : null
                 )}>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold uppercase tracking-wider text-foreground">{wg.label}</span>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60">{wg.label}</span>
                     <button onClick={() => toggleWidget(key)} title="Remove widget"
-                      className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                      <X size={13} />
+                      className="flex items-center justify-center size-5 rounded text-muted-foreground/30 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                      <X size={12} />
                     </button>
                   </div>
                   {wg.render(s, vs, st, dispOpts, toggleDisp, setDispOpt, setDbError)}
@@ -1454,9 +1537,9 @@ export default function App() {
           </div>
 
           {/* Footer */}
-          <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between items-center">
-            <span className="text-muted-foreground text-[11px]">SP1-03 Projectile Test Program</span>
-            <span className="text-muted-foreground text-[11px] font-mono">{s.shots[0]?.serial} → {s.shots[s.shots.length - 1]?.serial}</span>
+          <div className="border-t border-border px-6 py-3 flex justify-between items-center bg-secondary">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">SP1-03 · Axon Ballistic</span>
+            <span className="text-[10px] text-muted-foreground/50" style={{ fontFamily: "ui-monospace, monospace" }}>{s.shots[0]?.serial} → {s.shots[s.shots.length - 1]?.serial}</span>
           </div>
         </div>
       </AppShell>
@@ -1510,7 +1593,7 @@ export default function App() {
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border">
-                  {["#","Serial","FPS","X","Y","Wt",""].map(h => (
+                  {["#","Serial","FPS","X","Y","Wt","",""].map(h => (
                     <th key={h} className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">{h}</th>
                   ))}
                 </tr>
@@ -1540,6 +1623,9 @@ export default function App() {
                         <td className="text-foreground px-2 py-1.5 font-mono">{ss.x}</td>
                         <td className="text-foreground px-2 py-1.5 font-mono">{ss.y}</td>
                         <td className="text-muted-foreground px-2 py-1.5 font-mono">{ss.weight || "—"}</td>
+                        <td className="px-2 py-1.5 text-center">
+                          <ShotAttachBtn shotId={ss.id} sessionId={editSessionId} serial={ss.serial} onError={setDbError} />
+                        </td>
                         <td className="px-2 py-1.5 text-right whitespace-nowrap">
                           <button onClick={() => esStartEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
                           <button onClick={() => esDelShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
@@ -1577,7 +1663,7 @@ export default function App() {
       return { ...sl, session: s, shots: vs, stats: s.stats };
     }).filter(Boolean);
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" } };
+    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" } };
 
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
@@ -1601,11 +1687,6 @@ export default function App() {
             <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpWidgets)}>
               Save Comparison
             </Btn>
-            <Btn v="secondary" onClick={() => {
-              const ids = cmpSlots.map(sl => sl.id).filter(Boolean);
-              setLibraryFilterSessionIds(ids.length ? ids : null);
-              setPhase(P.LIBRARY);
-            }}>Library →</Btn>
             <Btn onClick={newSession}>+ New Session</Btn>
           </div>
         </div>
@@ -1614,13 +1695,16 @@ export default function App() {
         {/* Main compare card */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           {/* Header */}
-          <div className="bg-primary px-6 py-4 text-center">
+          <div className="px-6 py-4 text-center" style={{ background: '#111118', borderTop: `3px solid ${G}` }}>
             <input
               value={cmpTitle}
               onChange={e => setCmpTitle(e.target.value)}
               placeholder="Session Comparison"
-              className="bg-transparent text-black text-base font-bold tracking-[0.05em] uppercase text-center outline-none placeholder:text-black/35 border-none w-full cursor-text" />
-            <p className="text-black/40 text-[10px] mt-0.5 font-medium m-0">
+              className="bg-transparent text-base font-black tracking-[0.08em] uppercase text-center outline-none border-none w-full cursor-text"
+              style={{ color: '#ffffff', caretColor: G }}
+              onFocus={e => e.target.style.color = '#fff'}
+            />
+            <p className="text-[10px] mt-0.5 font-medium m-0" style={{ color: 'rgba(255,255,255,0.3)' }}>
               {resolved.length > 0 ? `${resolved.length} session${resolved.length !== 1 ? "s" : ""}  ·  ` : ""}click to edit title
             </p>
           </div>
@@ -1673,19 +1757,22 @@ export default function App() {
                     if (vals.length < 2) return null;
                     return (
                       <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{v.label}:</span>
-                        {vals.map(val => (
-                          <button key={val}
-                            onClick={() => setCmpFilters(p => { const n = { ...p }; if (n[v.key] === val) delete n[v.key]; else n[v.key] = val; return n; })}
-                            className={cn(
-                              "text-[11px] px-2 py-0.5 rounded border cursor-pointer transition-colors duration-150",
-                              cmpFilters[v.key] === val
-                                ? "bg-primary/15 text-primary border-primary/30 font-semibold"
-                                : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-border/60"
-                            )}>
-                            {val}
-                          </button>
-                        ))}
+                        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground/50 mr-1">{v.label}</span>
+                        {vals.map(val => {
+                          const active = cmpFilters[v.key] === val;
+                          return (
+                            <button key={val}
+                              onClick={() => setCmpFilters(p => { const n = { ...p }; if (n[v.key] === val) delete n[v.key]; else n[v.key] = val; return n; })}
+                              className="text-[11px] font-semibold px-2.5 py-1 border cursor-pointer transition-all duration-100"
+                              style={{
+                                background: active ? '#111118' : '#fff',
+                                color: active ? G : '#6b6b7e',
+                                borderColor: active ? '#111118' : '#e2e2e8',
+                              }}>
+                              {val}
+                            </button>
+                          );
+                        })}
                       </div>
                     );
                   })}
@@ -1923,6 +2010,22 @@ export default function App() {
                     </div>
                   );
                 }
+                if (key === "attachments") return (
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Attachments</span>
+                      <button onClick={() => toggleCmpWidget("attachments")} title="Remove widget"
+                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <LibraryPage
+                      log={log}
+                      vars={vars}
+                      preFilterSessionIds={resolved.map(r => r.session.id)}
+                      onError={setDbError} />
+                  </div>
+                );
                 return null;
               })}
               {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpWidgets.includes(k)) && (
@@ -2022,77 +2125,85 @@ export default function App() {
         ) : (
           <>
             {/* Filter bar */}
-            <div className="mb-4 space-y-2.5">
+            <div className="mb-5">
               <input
                 value={histSearch}
                 onChange={e => setHistSearch(e.target.value)}
                 placeholder="Search by session name…"
-                className={cn(inp, "text-sm")}
+                className={cn(inp, "text-sm mb-3")}
               />
               {vars.length > 0 && (
-                <div className="space-y-2">
+                <div className="flex flex-wrap gap-y-2 gap-x-5">
                   {vars.map(v => {
                     const options = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
                     if (!options.length) return null;
                     return (
-                      <div key={v.key} className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider w-24 shrink-0 truncate">{v.label}</span>
-                        <div className="flex gap-1.5 flex-wrap">
-                          {options.map(opt => (
+                      <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground/50 mr-1">{v.label}</span>
+                        {options.map(opt => {
+                          const active = histFilters[v.key] === opt;
+                          return (
                             <button
                               key={opt}
                               onClick={() => setHistFilters(f => f[v.key] === opt ? (({ [v.key]: _, ...rest }) => rest)(f) : { ...f, [v.key]: opt })}
-                              className={cn(
-                                "px-2.5 py-0.5 rounded-full border text-xs font-medium transition-all duration-150 cursor-pointer",
-                                histFilters[v.key] === opt
-                                  ? "border-primary/40 bg-primary/10 text-primary"
-                                  : "border-border bg-card/60 text-muted-foreground hover:text-foreground hover:border-border/80"
-                              )}>
+                              className="text-[11px] font-semibold px-2.5 py-1 border cursor-pointer transition-all duration-100"
+                              style={{
+                                background: active ? '#111118' : '#fff',
+                                color: active ? G : '#6b6b7e',
+                                borderColor: active ? '#111118' : '#e2e2e8',
+                              }}>
                               {opt}
                             </button>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </div>
                     );
                   })}
+                  {hasFilters && (
+                    <button
+                      onClick={() => { setHistFilters({}); setHistSearch(""); }}
+                      className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors self-center">
+                      Clear
+                    </button>
+                  )}
                 </div>
-              )}
-              {hasFilters && (
-                <button
-                  onClick={() => { setHistFilters({}); setHistSearch(""); }}
-                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
-                  Clear filters
-                </button>
               )}
             </div>
 
             {histFiltered.length === 0 ? (
               <Empty icon={<History size={18} />}>No sessions match the current filters.</Empty>
             ) : (
-              <div className="space-y-3">
+              <div className="flex flex-col gap-px border border-border">
                 {histFiltered.map(s => (
-                  <div key={s.id} className="bg-card border border-border border-l-2 rounded-lg p-5 flex items-start justify-between gap-4 transition-colors hover:border-border/80"
-                    style={{ borderLeftColor: "rgba(255,223,0,0.25)" }}>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-[15px] text-foreground mb-1 leading-tight">{s.config.sessionName || "Unnamed Session"}</div>
-                      <div className="text-[12px] text-muted-foreground mb-1">{vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ")}</div>
-                      <div className="text-[11px] text-muted-foreground/60 font-mono">{s.config.date}  ·  {s.stats.n} shots</div>
+                  <div key={s.id}
+                    className="bg-card flex items-center gap-0 transition-all duration-100 hover:bg-secondary/40 group"
+                    style={{ borderLeft: `3px solid ${G}` }}>
+                    {/* Name + vars */}
+                    <div className="flex-1 min-w-0 px-4 py-2.5">
+                      <div className="font-bold text-[13px] text-foreground leading-tight truncate">{s.config.sessionName || "Unnamed Session"}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}</div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-[12px] mb-3 font-mono">
-                        <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">CEP </span>
-                        <span className="text-primary font-bold">{s.stats.cep.toFixed(2)}</span>
-                        <span className="text-muted-foreground/30 mx-2">·</span>
-                        <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">SD </span>
-                        <span className="text-foreground font-semibold">{s.stats.sdV.toFixed(1)}</span>
-                      </div>
-                      <div className="flex gap-3 justify-end flex-wrap">
-                        <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="text-primary text-[12px] font-semibold bg-transparent border-none cursor-pointer hover:text-primary/80 transition-colors">View</button>
-                        <button onClick={() => openEditSession(s.id)} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">Edit</button>
-                        <button onClick={() => continueSession(s.id)} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">+ Shots</button>
-                        <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">Compare</button>
-                        <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="text-destructive text-[12px] bg-transparent border-none cursor-pointer hover:opacity-80 transition-opacity">Delete</button>
-                      </div>
+                    {/* Stats */}
+                    <div className="flex items-center gap-5 px-5 shrink-0 border-l border-border py-2.5">
+                      {[["CEP", s.stats.cep.toFixed(2)], ["R90", s.stats.r90.toFixed(2)], ["SD X", s.stats.sdX.toFixed(2)], ["SD Y", s.stats.sdY.toFixed(2)], ["FPS SD", s.stats.sdV.toFixed(1)]].map(([lbl, val]) => (
+                        <div key={lbl} className="text-center min-w-[36px]">
+                          <div className="text-[8px] font-black uppercase tracking-[0.15em] text-muted-foreground/40 mb-0.5">{lbl}</div>
+                          <div className="text-[14px] font-bold tabular-nums leading-none" style={{ fontFamily: 'ui-monospace, monospace', color: lbl === 'CEP' ? '#111118' : '#6b6b7e' }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Meta */}
+                    <div className="px-4 shrink-0 border-l border-border py-2.5 hidden lg:block">
+                      <div className="text-[10px] text-muted-foreground/50 font-mono">{s.config.date}</div>
+                      <div className="text-[10px] text-muted-foreground/40 font-mono">{s.stats.n} shots</div>
+                    </div>
+                    {/* Actions */}
+                    <div className="flex items-center shrink-0 border-l border-border h-full">
+                      <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="h-full px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
+                      <button onClick={() => openEditSession(s.id)} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
+                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">+&nbsp;Shots</button>
+                      <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
+                      <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-2.5 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
                     </div>
                   </div>
                 ))}

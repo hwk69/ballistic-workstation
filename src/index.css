@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -12,19 +12,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-select option { background: #1b1b22; }
+select option { background: #fff; color: #111; }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.5);
+  filter: none;
   cursor: pointer;
+  opacity: 0.4;
 }
 
 button { font-family: inherit; }
 
 /* ─── Brand color tokens ──────────────────────────────────────── */
 @theme inline {
-  --font-sans: 'Geist Variable', system-ui, sans-serif;
-  --font-mono: 'Geist Variable', monospace;
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Courier New', monospace;
   --font-heading: var(--font-sans);
 
   --color-background:          var(--background);
@@ -63,70 +64,37 @@ button { font-family: inherit; }
   --tremor-ring: var(----tremor-ring);
 }
 
-/* Base theme — always dark, matches JS design tokens */
+/* ─── Light theme (Axon-style) ──────────────────────────────── */
 :root {
-  --background: oklch(0.07 0.008 268);       /* #0b0b0f — near-black */
-  --foreground: oklch(0.94 0.005 266);        /* #ededf2 */
-  --card: oklch(0.105 0.009 268);             /* #131318 */
-  --card-foreground: oklch(0.94 0.005 266);
-  --popover: oklch(0.105 0.009 268);
-  --popover-foreground: oklch(0.94 0.005 266);
-  --primary: oklch(0.895 0.205 91);           /* #FFDF00 */
-  --primary-foreground: oklch(0.08 0 0);
-  --secondary: oklch(0.148 0.010 268);        /* #1b1b22 */
-  --secondary-foreground: oklch(0.60 0.015 268);
-  --muted: oklch(0.148 0.010 268);
-  --muted-foreground: oklch(0.58 0.016 268);  /* #8a8a9e */
-  --accent: oklch(0.148 0.010 268);
-  --accent-foreground: oklch(0.94 0.005 266);
-  --destructive: oklch(0.65 0.22 25);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 9%);
-  --ring: oklch(0.895 0.205 91);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.105 0.009 268);
-  --sidebar-foreground: oklch(0.94 0.005 266);
-  --sidebar-primary: oklch(0.895 0.205 91);
-  --sidebar-primary-foreground: oklch(0.08 0 0);
-  --sidebar-accent: oklch(0.148 0.010 268);
-  --sidebar-accent-foreground: oklch(0.94 0.005 266);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.895 0.205 91);
-  --tremor-ring: 229 231 235;
-  --dark-tremor-ring: 31 41 55;
-}
-
-/* Dark theme — always active via html.dark */
-.dark {
-  --background: oklch(0.07 0.008 268);
-  --foreground: oklch(0.94 0.005 266);
-  --card: oklch(0.105 0.009 268);
-  --card-foreground: oklch(0.94 0.005 266);
-  --popover: oklch(0.105 0.009 268);
-  --popover-foreground: oklch(0.94 0.005 266);
-  --primary: oklch(0.895 0.205 91);
-  --primary-foreground: oklch(0.08 0 0);
-  --secondary: oklch(0.148 0.010 268);
-  --secondary-foreground: oklch(0.60 0.015 268);
-  --muted: oklch(0.148 0.010 268);
-  --muted-foreground: oklch(0.58 0.016 268);
-  --accent: oklch(0.148 0.010 268);
-  --accent-foreground: oklch(0.94 0.005 266);
-  --destructive: oklch(0.65 0.22 25);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 9%);
-  --ring: oklch(0.895 0.205 91);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.105 0.009 268);
-  --sidebar-foreground: oklch(0.94 0.005 266);
-  --sidebar-primary: oklch(0.895 0.205 91);
-  --sidebar-primary-foreground: oklch(0.08 0 0);
-  --sidebar-accent: oklch(0.148 0.010 268);
-  --sidebar-accent-foreground: oklch(0.94 0.005 266);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.895 0.205 91);
-  --tremor-ring: 31 41 55;
-  --dark-tremor-ring: 229 231 235;
+  --background:             #f7f7fa;
+  --foreground:             #111118;
+  --card:                   #ffffff;
+  --card-foreground:        #111118;
+  --popover:                #ffffff;
+  --popover-foreground:     #111118;
+  --primary:                #FFDF00;
+  --primary-foreground:     #000000;
+  --secondary:              #f0f0f4;
+  --secondary-foreground:   #333340;
+  --muted:                  #f0f0f4;
+  --muted-foreground:       #6b6b7e;
+  --accent:                 #f0f0f4;
+  --accent-foreground:      #111118;
+  --destructive:            #dc2626;
+  --border:                 #e2e2e8;
+  --input:                  #e2e2e8;
+  --ring:                   #FFDF00;
+  --radius:                 0.125rem;
+  --sidebar:                #ffffff;
+  --sidebar-foreground:     #111118;
+  --sidebar-primary:        #FFDF00;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent:         #f0f0f4;
+  --sidebar-accent-foreground: #111118;
+  --sidebar-border:         #e2e2e8;
+  --sidebar-ring:           #FFDF00;
+  --tremor-ring:            229 231 235;
+  --dark-tremor-ring:       31 41 55;
 }
 
 @layer base {
