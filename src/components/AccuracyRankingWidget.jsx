@@ -79,9 +79,8 @@ export function AccuracyRankingWidget({ sessions }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{
                   width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                  background: isWinner ? WIN_COLOR : sess.color,
+                  background: sess.color,
                   opacity: dimOpacity,
-                  boxShadow: isWinner ? '0 0 6px rgba(105,219,124,0.8)' : 'none',
                 }} />
                 <span style={{ fontSize: 10, fontWeight: 700, color: `rgba(255,255,255,${dimOpacity * 0.8})`, fontFamily: 'ui-monospace,monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {sess.name ?? '—'}
@@ -95,7 +94,7 @@ export function AccuracyRankingWidget({ sessions }) {
                 const worst = Math.max(...allVals);
                 const range = worst - best || 1;
                 const barPct = single ? 0 : Math.min(100, ((sess.stats[key] - best) / range) * 100);
-                const cellColor = isWinner ? WIN_COLOR : sess.color;
+                const cellColor = sess.color;
 
                 return (
                   <div key={key} style={{ textAlign: 'center' }}>

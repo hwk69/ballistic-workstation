@@ -27,7 +27,7 @@ export function VelRankingWidget({ sessions }) {
           const delta = best - sess.stats.meanV;
           const dimOpacity = isWinner ? 1 : i === 1 ? 0.6 : 0.45;
           const numSize = isWinner ? 22 : 18;
-          const color = isWinner ? WIN_COLOR : sess.color;
+          const color = sess.color;
 
           return (
             <div key={`${sess.name}-${i}`} style={{
@@ -43,7 +43,6 @@ export function VelRankingWidget({ sessions }) {
                     width: 8, height: 8, borderRadius: '50%',
                     background: color,
                     opacity: dimOpacity,
-                    boxShadow: isWinner ? `0 0 6px rgba(105,219,124,0.8)` : 'none',
                     flexShrink: 0,
                   }} />
                   <span style={{ fontSize: 11, fontWeight: 700, color: `rgba(255,255,255,${dimOpacity * 0.8})`, fontFamily: 'ui-monospace,monospace' }}>
@@ -72,11 +71,8 @@ export function VelRankingWidget({ sessions }) {
                   height: '100%',
                   width: `${barPct}%`,
                   borderRadius: 3,
-                  background: isWinner
-                    ? `linear-gradient(90deg, rgba(105,219,124,0.6), ${WIN_COLOR})`
-                    : color,
+                  background: color,
                   opacity: isWinner ? 1 : dimOpacity * 0.5,
-                  boxShadow: isWinner ? '0 0 8px rgba(105,219,124,0.4)' : 'none',
                   transition: 'width 0.4s ease',
                 }} />
               </div>

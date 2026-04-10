@@ -2035,32 +2035,49 @@ export default function App() {
                       onError={setDbError} />
                   </div>
                 );
-                if (key === "velRanking") return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Velocity</span>
-                      <button onClick={() => toggleCmpWidget("velRanking")} title="Remove widget"
-                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                        <X size={13} />
-                      </button>
+                if (key === "velRanking" || key === "accuracyRanking") {
+                  const hasBoth = cmpWidgets.includes("velRanking") && cmpWidgets.includes("accuracyRanking");
+                  if (hasBoth && key === "accuracyRanking") return null;
+                  const cmpSessions = resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }));
+                  if (hasBoth) return (
+                    <div key="rankingPair" className="p-4 border-b border-border">
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Velocity</span>
+                            <button onClick={() => toggleCmpWidget("velRanking")} title="Remove widget"
+                              className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                              <X size={13} />
+                            </button>
+                          </div>
+                          <VelRankingWidget sessions={cmpSessions} />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Accuracy</span>
+                            <button onClick={() => toggleCmpWidget("accuracyRanking")} title="Remove widget"
+                              className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                              <X size={13} />
+                            </button>
+                          </div>
+                          <AccuracyRankingWidget sessions={cmpSessions} />
+                        </div>
+                      </div>
                     </div>
-                    <VelRankingWidget
-                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }))} />
-                  </div>
-                );
-                if (key === "accuracyRanking") return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Accuracy</span>
-                      <button onClick={() => toggleCmpWidget("accuracyRanking")} title="Remove widget"
-                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                        <X size={13} />
-                      </button>
+                  );
+                  return (
+                    <div key={key} className="p-4 border-b border-border">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold uppercase tracking-wider text-foreground">{key === "velRanking" ? "Best Velocity" : "Best Accuracy"}</span>
+                        <button onClick={() => toggleCmpWidget(key)} title="Remove widget"
+                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                          <X size={13} />
+                        </button>
+                      </div>
+                      {key === "velRanking" ? <VelRankingWidget sessions={cmpSessions} /> : <AccuracyRankingWidget sessions={cmpSessions} />}
                     </div>
-                    <AccuracyRankingWidget
-                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }))} />
-                  </div>
-                );
+                  );
+                }
                 return null;
               })}
               {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpWidgets.includes(k)) && (
