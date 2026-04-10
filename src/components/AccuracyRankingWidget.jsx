@@ -21,7 +21,7 @@ function computeScores(sessions) {
   return scores;
 }
 
-export function AccuracyRankingWidget({ sessions }) {
+export function AccuracyRankingWidget({ sessions, style }) {
   if (!sessions || sessions.length === 0) return null;
 
   const valid = sessions.filter(s =>
@@ -43,7 +43,7 @@ export function AccuracyRankingWidget({ sessions }) {
   }
 
   return (
-    <div style={{ background: CHART_BG, borderRadius: 8, padding: '14px 16px' }}>
+    <div style={{ background: CHART_BG, borderRadius: 8, padding: '14px 16px', ...style }}>
       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 12 }}>
         CEP · SD X · SD Y — lower is better
       </div>

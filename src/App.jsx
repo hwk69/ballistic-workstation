@@ -2041,8 +2041,8 @@ export default function App() {
                   const cmpSessions = resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }));
                   if (hasBoth) return (
                     <div key="rankingPair" className="p-4 border-b border-border">
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'stretch' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <div className="flex items-center justify-between mb-3">
                             <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Velocity</span>
                             <button onClick={() => toggleCmpWidget("velRanking")} title="Remove widget"
@@ -2050,9 +2050,9 @@ export default function App() {
                               <X size={13} />
                             </button>
                           </div>
-                          <VelRankingWidget sessions={cmpSessions} />
+                          <VelRankingWidget sessions={cmpSessions} style={{ flex: 1 }} />
                         </div>
-                        <div>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <div className="flex items-center justify-between mb-3">
                             <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Accuracy</span>
                             <button onClick={() => toggleCmpWidget("accuracyRanking")} title="Remove widget"
@@ -2060,7 +2060,7 @@ export default function App() {
                               <X size={13} />
                             </button>
                           </div>
-                          <AccuracyRankingWidget sessions={cmpSessions} />
+                          <AccuracyRankingWidget sessions={cmpSessions} style={{ flex: 1 }} />
                         </div>
                       </div>
                     </div>

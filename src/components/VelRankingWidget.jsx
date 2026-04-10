@@ -2,7 +2,7 @@
 const CHART_BG = '#111118';
 const WIN_COLOR = '#69db7c';
 
-export function VelRankingWidget({ sessions }) {
+export function VelRankingWidget({ sessions, style }) {
   if (!sessions || sessions.length === 0) return null;
 
   const sorted = [...sessions]
@@ -15,7 +15,7 @@ export function VelRankingWidget({ sessions }) {
   const single = sorted.length === 1;
 
   return (
-    <div style={{ background: CHART_BG, borderRadius: 8, padding: '14px 16px' }}>
+    <div style={{ background: CHART_BG, borderRadius: 8, padding: '14px 16px', ...style }}>
       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 12 }}>
         Mean FPS — higher is better
       </div>
