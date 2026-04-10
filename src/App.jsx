@@ -1032,6 +1032,7 @@ export default function App() {
   const [savedComparisons, setSavedComparisons] = useState([]);
   const [cmpMetrics, setCmpMetrics] = useState(DEF_CMP_METRICS);
   const [cmpLayout, setCmpLayout] = useState(DEFAULT_CMP_LAYOUT);
+  const [cmpSplit, setCmpSplit] = useState(DEFAULT_CMP_SPLIT);
   const [cmpTitle, setCmpTitle] = useState("");
   const [cmpBy, setCmpBy] = useState("");
   const [cmpFilters, setCmpFilters] = useState({});
@@ -1083,16 +1084,20 @@ export default function App() {
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
         if (settings.layout.cmpMetrics) setCmpMetrics(settings.layout.cmpMetrics);
         if (settings.layout.cmpLayout) {
-          setCmpLayout(settings.layout.cmpLayout);
+          const raw = settings.layout.cmpLayout;
+          if (Array.isArray(raw) && raw.length > 0) {
+            if (typeof raw[0] === 'string') {
+              setCmpLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
+            } else if (raw[0].x !== undefined) {
+              setCmpLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' })));
+            } else {
+              setCmpLayout(raw);
+            }
+          }
         } else if (settings.layout.cmpWidgets) {
-          setCmpLayout(settings.layout.cmpWidgets.map((k, i) => ({
-            i: k,
-            x: 0,
-            y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
-            w: WIDGET_DEFAULTS[k]?.w ?? 6,
-            h: WIDGET_DEFAULTS[k]?.h ?? 3,
-          })));
+          setCmpLayout(settings.layout.cmpWidgets.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
         }
+        if (settings.layout.cmpSplit) setCmpSplit(settings.layout.cmpSplit);
       }
       setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
       setSavedComparisons(comparisons);
@@ -1121,9 +1126,9 @@ export default function App() {
   useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); } }, [phase]);
 
   const saveLayoutAll = useCallback(async upd => {
-    const c = { layout, dispOpts, cmpMetrics, cmpLayout, ...upd };
+    const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
     try { await db.saveSettings({ layout: c }); } catch (err) { setDbError('Settings save failed: ' + err.message); }
-  }, [layout, dispOpts, cmpMetrics, cmpLayout]);
+  }, [layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit]);
 
   const saveComparison = useCallback(async (title, slots, filters, by, metrics, widgets) => {
     try {
@@ -1149,21 +1154,16 @@ export default function App() {
     setCmpFilters(c.filters || {});
     setCmpBy(c.by || "");
     setCmpMetrics(c.metrics || DEF_CMP_METRICS);
-    if (c.layout) {
-      setCmpLayout(c.layout);
-    } else if (c.widgets && c.widgets.length > 0) {
-      // New format: array of layout objects {i,x,y,w,h}
-      if (typeof c.widgets[0] === 'object' && c.widgets[0].i) {
-        setCmpLayout(c.widgets);
+    const raw = c.layout ?? c.widgets;
+    if (Array.isArray(raw) && raw.length > 0) {
+      if (typeof raw[0] === 'string') {
+        setCmpLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
+      } else if (raw[0].x !== undefined) {
+        setCmpLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' })));
+      } else if (raw[0].zone !== undefined) {
+        setCmpLayout(raw);
       } else {
-        // Old format: array of string keys — migrate
-        setCmpLayout(c.widgets.map((k, i) => ({
-          i: k,
-          x: 0,
-          y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
-          w: WIDGET_DEFAULTS[k]?.w ?? 6,
-          h: WIDGET_DEFAULTS[k]?.h ?? 3,
-        })));
+        setCmpLayout(DEFAULT_CMP_LAYOUT);
       }
     } else {
       setCmpLayout(DEFAULT_CMP_LAYOUT);
@@ -1173,16 +1173,15 @@ export default function App() {
   const toggleDisp = k => { setDispOpts(p => { const n = { ...p, [k]: !p[k] }; saveLayoutAll({ dispOpts: n }); return n; }); };
   const setDispOpt = (k, v) => { setDispOpts(p => { const n = { ...p, [k]: v }; saveLayoutAll({ dispOpts: n }); return n; }); };
   const toggleCmpMetric = label => { setCmpMetrics(p => { const n = p.includes(label) ? p.filter(x => x !== label) : [...p, label]; saveLayoutAll({ cmpMetrics: n }); return n; }); };
-  const addToLayout = useCallback(k => {
+  const addWidget = useCallback(k => {
     setCmpLayout(prev => {
-      const item = { i: k, x: 0, y: Infinity, w: WIDGET_DEFAULTS[k]?.w ?? 6, h: WIDGET_DEFAULTS[k]?.h ?? 3 };
-      const next = [...prev, item];
+      const next = [...prev, { i: k, zone: DEFAULT_ZONE[k] ?? 'full' }];
       saveLayoutAll({ cmpLayout: next });
       return next;
     });
   }, [saveLayoutAll]);
 
-  const removeFromLayout = useCallback(k => {
+  const removeWidget = useCallback(k => {
     setCmpLayout(prev => {
       const next = prev.filter(item => item.i !== k);
       saveLayoutAll({ cmpLayout: next });
@@ -1190,9 +1189,17 @@ export default function App() {
     });
   }, [saveLayoutAll]);
 
-  const handleLayoutChange = useCallback(layout => {
-    setCmpLayout(layout);
-    saveLayoutAll({ cmpLayout: layout });
+  const cycleZone = useCallback(k => {
+    const order = ['main', 'sidebar', 'full'];
+    setCmpLayout(prev => {
+      const next = prev.map(item =>
+        item.i === k
+          ? { ...item, zone: order[(order.indexOf(item.zone) + 1) % order.length] }
+          : item
+      );
+      saveLayoutAll({ cmpLayout: next });
+      return next;
+    });
   }, [saveLayoutAll]);
 
 
