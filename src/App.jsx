@@ -809,12 +809,6 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
       }}
       className={cn("relative flex flex-col", !size && (fullWidth ? "w-full" : "w-full lg:w-1/2"))}
     >
-      {/* Drag handle */}
-      <button {...attributes} {...listeners}
-        className="absolute top-[18px] right-10 z-10 cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/25 hover:text-muted-foreground/70 transition-colors"
-        aria-label="Drag to reorder">
-        <GripVertical size={13} />
-      </button>
       {children}
       {/* Resize handle */}
       <div onMouseDown={onResizeDown}
@@ -2114,7 +2108,6 @@ export default function App() {
                           <div className="widget-panel h-full flex flex-col bg-card border border-border rounded-xl">
                             <div className="widget-header flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40 shrink-0">
                               <div className="rgl-drag-handle flex items-center gap-1.5 cursor-grab select-none">
-                                <GripVertical size={13} className="grip-icon text-muted-foreground/50" />
                                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{def.label}</span>
                               </div>
                               <button
