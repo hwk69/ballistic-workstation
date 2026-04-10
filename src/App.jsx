@@ -32,17 +32,17 @@ const TICK_CLR = "rgba(255,255,255,0.85)";
 
 // ─── Widget zone defaults ────────────────────────────────────────────────────
 const DEFAULT_ZONE = {
-  overlay:  'main',
-  rankings: 'sidebar',
+  overlay:  'full',
+  rankings: 'full',
   metrics:  'full',
   velCompare: 'full',
   shotLog:  'full',
   attachments: 'full',
 };
 const DEFAULT_CMP_LAYOUT = [
-  { i: 'overlay',  zone: 'main'    },
-  { i: 'rankings', zone: 'sidebar' },
-  { i: 'metrics',  zone: 'full'    },
+  { i: 'overlay',  zone: 'full' },
+  { i: 'rankings', zone: 'full' },
+  { i: 'metrics',  zone: 'full' },
 ];
 const DEFAULT_CMP_SPLIT = '2/3';
 
@@ -1761,20 +1761,12 @@ export default function App() {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
               {def.label}
             </span>
-            <div className="flex items-center gap-1">
-              <button
-                className="zone-btn text-[10px] font-bold text-muted-foreground/60 hover:text-foreground px-1.5 py-0.5 rounded hover:bg-secondary transition-colors cursor-pointer bg-transparent border border-border"
-                onClick={() => cycleZone(key)}
-                title="Cycle zone: Main → Sidebar → Full">
-                {zoneLabel[item.zone]}
-              </button>
-              <button
-                className="rgl-remove-btn flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none"
-                onClick={() => removeWidget(key)}
-                title="Remove widget">
-                <X size={13} />
-              </button>
-            </div>
+            <button
+              className="rgl-remove-btn flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none"
+              onClick={() => removeWidget(key)}
+              title="Remove widget">
+              <X size={13} />
+            </button>
           </div>
           <div className="p-4">
             {renderWidgetContent(key)}
@@ -1967,14 +1959,6 @@ export default function App() {
           <div className="flex items-center gap-2">
             <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpLayout)}>
               Save Comparison
-            </Btn>
-            <Btn v="secondary" onClick={() => {
-              const opts = ['1/2', '2/3', '3/4'];
-              const next = opts[(opts.indexOf(cmpSplit) + 1) % opts.length];
-              setCmpSplit(next);
-              saveLayoutAll({ cmpSplit: next });
-            }} title="Toggle main/sidebar column split">
-              {cmpSplit}
             </Btn>
             <Btn v="secondary" onClick={handleExport} disabled={resolved.length < 2}>
               Export Image
