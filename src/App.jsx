@@ -1011,7 +1011,10 @@ export default function App() {
 
   useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); } }, [phase]);
 
-  const saveLayoutAll = useCallback(async upd => { const c = { layout, dispOpts, cmpMetrics, cmpWidgets, ...upd }; await sv(LK, c); }, [layout, dispOpts, cmpMetrics, cmpWidgets]);
+  const saveLayoutAll = useCallback(async upd => {
+    const c = { layout, dispOpts, cmpMetrics, cmpWidgets, ...upd };
+    try { await db.saveSettings({ layout: c }); } catch (err) { setDbError('Settings save failed: ' + err.message); }
+  }, [layout, dispOpts, cmpMetrics, cmpWidgets]);
 
   const saveComparison = useCallback(async (title, slots, filters, by, metrics, widgets) => {
     const name = title.trim() || `Comparison ${savedComparisons.length + 1}`;
@@ -1048,9 +1051,15 @@ export default function App() {
   const total = parseInt(cfg.shotCount) || 0;
   const validShots = useMemo(() => shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y)), [shots]);
   const stats = useMemo(() => calcStats(shots), [shots]);
-  const addOption = useCallback(async (key, val) => { setOpts(p => { const n = { ...p, [key]: [...(p[key] || []), val] }; sv(OK, n); return n; }); }, []);
-  const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await sv(CVK, nv); setOpts(p => { const n = { ...p, [key]: [] }; sv(OK, n); return n; }); setNewVarName(""); setAdding(false); };
-  const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); sv(CVK, n); return n; }); };
+  const addOption = useCallback(async (key, val) => {
+    setOpts(p => {
+      const n = { ...p, [key]: [...(p[key] || []), val] };
+      db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message));
+      return n;
+    });
+  }, []);
+  const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await db.saveSettings({ vars: nv }); setOpts(p => { const n = { ...p, [key]: [] }; db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message)); return n; }); setNewVarName(""); setAdding(false); };
+  const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); db.saveSettings({ vars: n }).catch(err => setDbError('Var save failed: ' + err.message)); return n; }); };
   const updateLog = async nl => { setLog(nl); await sv(SK, nl); };
   const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
