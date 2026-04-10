@@ -1014,7 +1014,7 @@ export default function App() {
   const [vars, setVars]     = useState(DEF_VARS);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
-  const fileRef = useRef(); const fpsRef = useRef();
+  const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
@@ -1157,14 +1157,20 @@ export default function App() {
     setCmpMetrics(c.metrics || DEF_CMP_METRICS);
     if (c.layout) {
       setCmpLayout(c.layout);
-    } else if (c.widgets) {
-      setCmpLayout(c.widgets.map((k, i) => ({
-        i: k,
-        x: 0,
-        y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
-        w: WIDGET_DEFAULTS[k]?.w ?? 6,
-        h: WIDGET_DEFAULTS[k]?.h ?? 3,
-      })));
+    } else if (c.widgets && c.widgets.length > 0) {
+      // New format: array of layout objects {i,x,y,w,h}
+      if (typeof c.widgets[0] === 'object' && c.widgets[0].i) {
+        setCmpLayout(c.widgets);
+      } else {
+        // Old format: array of string keys — migrate
+        setCmpLayout(c.widgets.map((k, i) => ({
+          i: k,
+          x: 0,
+          y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
+          w: WIDGET_DEFAULTS[k]?.w ?? 6,
+          h: WIDGET_DEFAULTS[k]?.h ?? 3,
+        })));
+      }
     } else {
       setCmpLayout(DEFAULT_CMP_LAYOUT);
     }
@@ -1736,7 +1742,6 @@ export default function App() {
       stats: r.stats,
     }));
 
-    const exportRef = useRef(null);
     const exportDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const sessionNames = resolved.map(r => r.session.config.sessionName || 'Session').join(' · ');
 
