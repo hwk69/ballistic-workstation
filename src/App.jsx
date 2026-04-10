@@ -2045,7 +2045,7 @@ export default function App() {
                       </button>
                     </div>
                     <VelRankingWidget
-                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'Session', color: r.color, stats: r.stats }))} />
+                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }))} />
                   </div>
                 );
                 if (key === "accuracyRanking") return (
@@ -2058,7 +2058,7 @@ export default function App() {
                       </button>
                     </div>
                     <AccuracyRankingWidget
-                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'Session', color: r.color, stats: r.stats }))} />
+                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }))} />
                   </div>
                 );
                 return null;
