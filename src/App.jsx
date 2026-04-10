@@ -2191,32 +2191,18 @@ export default function App() {
                   <div key={s.id}
                     className="bg-card flex items-center gap-0 transition-all duration-100 hover:bg-secondary/40 group"
                     style={{ borderLeft: `3px solid ${G}` }}>
-                    {/* Name + vars */}
-                    <div className="flex-1 min-w-0 px-4 py-2.5">
+                    {/* Name + date + shots */}
+                    <div className="flex-1 min-w-0 px-4 py-3">
                       <div className="font-bold text-[13px] text-foreground leading-tight truncate">{s.config.sessionName || "Unnamed Session"}</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}</div>
-                    </div>
-                    {/* Stats */}
-                    <div className="flex items-center gap-5 px-5 shrink-0 border-l border-border py-2.5">
-                      {[["CEP", s.stats.cep.toFixed(2)], ["R90", s.stats.r90.toFixed(2)], ["SD X", s.stats.sdX.toFixed(2)], ["SD Y", s.stats.sdY.toFixed(2)], ["FPS SD", s.stats.sdV.toFixed(1)]].map(([lbl, val]) => (
-                        <div key={lbl} className="text-center min-w-[36px]">
-                          <div className="text-[8px] font-black uppercase tracking-[0.15em] text-muted-foreground/40 mb-0.5">{lbl}</div>
-                          <div className="text-[14px] font-bold tabular-nums leading-none" style={{ fontFamily: 'ui-monospace, monospace', color: lbl === 'CEP' ? '#111118' : '#6b6b7e' }}>{val}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Meta */}
-                    <div className="px-4 shrink-0 border-l border-border py-2.5 hidden lg:block">
-                      <div className="text-[10px] text-muted-foreground/50 font-mono">{s.config.date}</div>
-                      <div className="text-[10px] text-muted-foreground/40 font-mono">{s.stats.n} shots</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">{s.config.date} · {s.stats.n} shot{s.stats.n !== 1 ? "s" : ""}</div>
                     </div>
                     {/* Actions */}
                     <div className="flex items-center shrink-0 border-l border-border h-full">
-                      <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="h-full px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
-                      <button onClick={() => openEditSession(s.id)} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
-                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">+&nbsp;Shots</button>
-                      <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="h-full px-3 py-2.5 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
-                      <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-2.5 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
+                      <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
+                      <button onClick={() => openEditSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
+                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">+&nbsp;Shots</button>
+                      <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
+                      <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
                     </div>
                   </div>
                 ))}
