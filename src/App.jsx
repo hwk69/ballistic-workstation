@@ -1,8 +1,17 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import * as d3 from "d3";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useScroll } from "@/components/use-scroll";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS as dndCSS } from '@dnd-kit/utilities';
+import { GripVertical, Crosshair, BarChart2, History, X, Plus } from 'lucide-react';
+import { LoginScreen } from './components/LoginScreen.jsx';
+import * as db from './lib/db.js';
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
-const SK="bw-vB",OK="bw-opts-vB",CVK="bw-cvars-vB",LK="bw-layout-vB";
+const SK="bw-vB",OK="bw-opts-vB",CVK="bw-cvars-vB",LK="bw-layout-vB",CK="bw-cmp-saves-vB";
 async function ld(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null;}catch{return null;}}
 async function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){console.error(e);}}
 
@@ -18,9 +27,9 @@ const TX2  = "#8a8a9e";
 const FONT = "'DM Sans', system-ui, sans-serif";
 // Chart-specific
 const CHART_BG = "#0f0f14";
-const GRID_CLR = "rgba(255,255,255,0.04)";
-const AXIS_CLR = "rgba(255,255,255,0.13)";
-const TICK_CLR = "#66667a";
+const GRID_CLR = "rgba(255,255,255,0.10)";
+const AXIS_CLR = "rgba(255,255,255,0.40)";
+const TICK_CLR = "rgba(255,255,255,0.85)";
 
 // ─── Data constants ───────────────────────────────────────────────────────────
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
@@ -28,6 +37,27 @@ const DEF_OPTS={rifleRate:["1-6","1-8","1-10","1-12","1-14","1-16","1-18"],sleev
 const DEF_VARS=[{key:"rifleRate",label:"Rifle Rate",core:true},{key:"sleeveType",label:"Sleeve Type",core:true},{key:"tailType",label:"Tail Type",core:true},{key:"combustionChamber",label:"Combustion Chamber",core:true},{key:"load22",label:".22 Load",core:true}];
 const ALL_METRICS=[["CEP (50%)","cep",3,true],["R90","r90",3,true],["Mean Radius","mr",3,true],["Ext. Spread","es",3,true],["SD X","sdX",3,true],["SD Y","sdY",3,true],["SD Radial","sdR",3,false],["MPI X","mpiX",3,false],["MPI Y","mpiY",3,false],["Mean FPS","meanV",1,true],["SD FPS","sdV",1,true],["ES FPS","esV",1,true]];
 const LOWER_BETTER=["CEP (50%)","R90","Mean Radius","Ext. Spread","SD X","SD Y","SD Radial","SD FPS","ES FPS"];
+const OC = { cep: "#3b82f6", r90: "#a855f7", ellipse: "#06b6d4", mpi: "#22c55e" }; // overlay colors
+
+// ─── Metric descriptions & formulas (for hover tooltips) ──────────────────────
+const METRIC_INFO = {
+  "CEP":         { desc: "Radius of a circle centered on the MPI that contains 50% of shots. The primary precision metric — lower is tighter.", formula: "Sort radii from MPI → 50th percentile value" },
+  "CEP (50%)":   { desc: "Radius of a circle centered on the MPI that contains 50% of shots. The primary precision metric — lower is tighter.", formula: "Sort radii from MPI → 50th percentile value" },
+  "R90":         { desc: "Radius containing 90% of shots around the MPI. Measures worst-case spread, excluding extreme outliers.", formula: "Sort radii from MPI → 90th percentile value" },
+  "Mean Radius": { desc: "Average radial distance of all shots from the MPI. More sensitive to outliers than CEP.", formula: "Mean( √((x − MPI_x)² + (y − MPI_y)²) )" },
+  "Mean Rad":    { desc: "Average radial distance of all shots from the MPI. More sensitive to outliers than CEP.", formula: "Mean( √((x − MPI_x)² + (y − MPI_y)²) )" },
+  "Ext. Spread": { desc: "Diameter of the smallest circle enclosing all shots. Absolute worst-to-worst spread.", formula: "2 × max( radii from MPI )" },
+  "Ext Spread":  { desc: "Diameter of the smallest circle enclosing all shots. Absolute worst-to-worst spread.", formula: "2 × max( radii from MPI )" },
+  "SD X":        { desc: "Standard deviation of horizontal (X) shot positions. High SD X means the group is stretched left-right.", formula: "√( Σ(x − x̄)² / (n−1) )" },
+  "SD Y":        { desc: "Standard deviation of vertical (Y) shot positions. High SD Y means the group is stretched up-down.", formula: "√( Σ(y − ȳ)² / (n−1) )" },
+  "SD Radial":   { desc: "Standard deviation of radial distances from the MPI. Measures how consistent the group size is shot-to-shot.", formula: "√( Σ(r − r̄)² / (n−1) )" },
+  "MPI X":       { desc: "Horizontal mean point of impact. Non-zero means the group center is offset left or right from bore sight.", formula: "Σx / n" },
+  "MPI Y":       { desc: "Vertical mean point of impact. Non-zero means the group center is offset up or down from bore sight.", formula: "Σy / n" },
+  "MPI X/Y":     { desc: "Mean point of impact — average center of all shots. Offset from (0, 0) reveals sight alignment error independent of precision.", formula: "MPI_x = Σx / n,   MPI_y = Σy / n" },
+  "Mean FPS":    { desc: "Average muzzle velocity across all shots.", formula: "Σfps / n" },
+  "SD FPS":      { desc: "Shot-to-shot velocity consistency. Lower = more uniform propellant burn. High SD FPS causes vertical stringing.", formula: "√( Σ(fps − fps̄)² / (n−1) )" },
+  "ES FPS":      { desc: "Extreme velocity spread — fastest minus slowest shot. Full range of velocity variation.", formula: "max(fps) − min(fps)" },
+};
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
@@ -53,50 +83,101 @@ function exportJson(log){dl(JSON.stringify(log,null,2),"Ballistic_All.json","app
 function countOverlaps(shots){const m={};shots.forEach(s=>{const k=`${s.x},${s.y}`;m[k]=(m[k]||0)+1;});return m;}
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
-const inp = "bg-[#0f0f14] border border-white/[.08] rounded-lg px-3 py-2.5 text-sm text-white/90 focus:border-yellow-400/50 focus:outline-none w-full placeholder-white/20 transition-colors";
-const card = { background: SURF, border: `1px solid ${BD}`, borderRadius: 12 };
+const inp = "w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none transition-colors";
+// card: still used for inline overrides (borderColor, etc.)
+const card = { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 };
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Btn({ children, onClick, v = "primary", disabled, cls = "" }) {
-  const styles = {
-    primary:   { background: G,    color: "#000", border: "none" },
-    secondary: { background: "transparent", color: TX2, border: `1px solid ${BD_HI}` },
-    danger:    { background: "rgba(239,68,68,0.1)", color: "#f87171", border: "1px solid rgba(239,68,68,0.22)" },
-  };
-  const s = styles[v] || styles.primary;
+  const variant = v === "primary" ? "default" : v === "secondary" ? "outline" : "destructive";
   return (
-    <button onClick={onClick} disabled={disabled}
-      style={{ ...s, borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 600,
-        cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.15s",
-        opacity: disabled ? 0.4 : 1, fontFamily: FONT, whiteSpace: "nowrap" }}
-      className={`hover:brightness-110 ${cls}`}
-    >{children}</button>
+    <Button variant={variant} disabled={disabled} onClick={onClick}
+      className={cn("h-auto py-2 px-4 text-sm font-semibold cursor-pointer", cls)}>
+      {children}
+    </Button>
   );
 }
 
-function SB({ label, value, gold }) {
+function MetricTip({ label, children }) {
+  const info = METRIC_INFO[label];
+  const [tip, setTip] = useState(null);
+  if (!info) return <>{children}</>;
   return (
-    <div style={{ background: SURF2, border: `1px solid ${BD}`, borderRadius: 10,
-      padding: "14px 16px", borderLeft: gold ? `3px solid ${G}` : `3px solid rgba(255,255,255,0.1)` }}>
-      <div style={{ color: TX2, fontSize: 10, fontWeight: 600, textTransform: "uppercase",
-        letterSpacing: "0.07em", marginBottom: 5 }}>{label}</div>
-      <div style={{ color: gold ? G : TX, fontWeight: 600, fontSize: 15,
-        fontFamily: "'Courier New', monospace" }}>{value}</div>
+    <span
+      className="cursor-help"
+      onMouseEnter={ev => setTip({ x: ev.clientX, y: ev.clientY })}
+      onMouseMove={ev => setTip({ x: ev.clientX, y: ev.clientY })}
+      onMouseLeave={() => setTip(null)}>
+      {children}
+      {tip && (
+        <div style={{
+          position: "fixed", left: tip.x + 14, top: tip.y - 10,
+          pointerEvents: "none", zIndex: 300,
+          background: "#1b1b22", border: "1px solid rgba(255,255,255,0.13)",
+          borderRadius: 8, padding: "10px 13px", fontSize: 11, lineHeight: 1.7,
+          color: "#ededf2", maxWidth: 270,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{ color: G, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+          <div style={{ color: TX2, marginBottom: 8, whiteSpace: "normal" }}>{info.desc}</div>
+          <div style={{
+            borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 7,
+            fontFamily: "monospace", color: "rgba(255,255,255,0.5)", fontSize: 10,
+            whiteSpace: "pre",
+          }}>{info.formula}</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function SB({ label, value, gold, accentColor, onClick, active }) {
+  const linked = !!onClick;
+  const ac = linked
+    ? (active ? accentColor : null)
+    : accentColor || (gold ? G : null);
+  return (
+    <div
+      className={cn(
+        "relative border border-border rounded-xl p-4 border-l-[3px] transition-all duration-200",
+        linked ? "cursor-pointer select-none" : "",
+        linked && active  && "border-opacity-60",
+        linked && !active && "opacity-50 hover:opacity-75 hover:border-border/80",
+      )}
+      style={{
+        borderLeftColor: ac || "var(--color-border)",
+        background: linked && active && accentColor ? accentColor + "12" : "var(--color-secondary)",
+      }}
+      onClick={onClick}>
+      {/* Clickable indicator dot */}
+      {linked && (
+        <span
+          className="absolute top-3 right-3 size-2 rounded-full transition-all duration-200"
+          style={{ background: active ? accentColor : "rgba(255,255,255,0.15)" }} />
+      )}
+      <div className="text-sm font-semibold uppercase tracking-wide mb-1.5"
+        style={{ color: ac || "var(--color-muted-foreground)" }}>
+        <MetricTip label={label}>{label}</MetricTip>
+      </div>
+      <div className="text-base font-bold font-mono" style={{ color: ac || "var(--color-foreground)" }}>
+        {value}
+      </div>
     </div>
   );
 }
 
-function Toggle({ label, on, onToggle }) {
+function Toggle({ label, on, onToggle, color }) {
   return (
-    <button onClick={onToggle} style={{
-      display: "flex", alignItems: "center", gap: 7, padding: "5px 12px", borderRadius: 7,
-      background: on ? `${G}18` : "rgba(255,255,255,0.04)",
-      color: on ? G : TX2,
-      border: `1px solid ${on ? `${G}28` : BD}`,
-      fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", fontFamily: FONT,
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: 3,
-        background: on ? G : "rgba(255,255,255,0.2)", flexShrink: 0, transition: "background 0.15s" }}/>
+    <button onClick={onToggle} className={cn(
+      "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium",
+      "border cursor-pointer transition-all duration-150",
+      on
+        ? "bg-primary/10 text-primary border-primary/25"
+        : "bg-secondary text-muted-foreground border-border hover:text-foreground hover:border-border/60"
+    )}
+    style={on && color ? { background: color + "18", color, borderColor: color + "40" } : undefined}>
+      <span className="size-1.5 rounded-full transition-colors"
+        style={{ background: on ? (color || "var(--color-primary)") : "rgba(255,255,255,0.25)" }} />
       {label}
     </button>
   );
@@ -108,15 +189,14 @@ function SmartSelect({ label, value, onChange, options, onAddOption }) {
   const add = () => { if (!nv.trim()) return; onAddOption(nv.trim()); onChange(nv.trim()); setNv(""); setAdding(false); };
   return (
     <div className="flex flex-col">
-      <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-        letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>{label}</label>
+      <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
       {adding ? (
         <div className="flex gap-1">
           <input value={nv} onChange={e => setNv(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") add(); if (e.key === "Escape") setAdding(false); }}
             placeholder="New option…" className={inp} autoFocus />
-          <button onClick={add} style={{ color: G, fontSize: 12, fontWeight: 700, padding: "0 10px", flexShrink: 0, cursor: "pointer", background: "none", border: "none" }}>Add</button>
-          <button onClick={() => setAdding(false)} style={{ color: TX2, fontSize: 12, padding: "0 6px", flexShrink: 0, cursor: "pointer", background: "none", border: "none" }}>✕</button>
+          <button onClick={add} className="px-2.5 text-xs font-bold text-primary cursor-pointer bg-transparent border-none shrink-0">Add</button>
+          <button onClick={() => setAdding(false)} className="px-1.5 text-xs text-muted-foreground cursor-pointer bg-transparent border-none shrink-0">✕</button>
         </div>
       ) : (
         <div className="flex gap-1">
@@ -125,8 +205,62 @@ function SmartSelect({ label, value, onChange, options, onAddOption }) {
             {options.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
           <button onClick={() => setAdding(true)} title="Add option"
-            style={{ color: G, fontSize: 20, padding: "0 10px", flexShrink: 0, cursor: "pointer",
-              fontWeight: 300, lineHeight: 1, background: "none", border: "none" }}>+</button>
+            className="px-2.5 text-lg font-light text-primary cursor-pointer bg-transparent border-none shrink-0 leading-none">+</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetAdder({ available, labels, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef();
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (btnRef.current && !btnRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  if (!available.length) return null;
+
+  const handleOpen = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom;
+      if (spaceBelow < 220) {
+        setPos({ bottom: window.innerHeight - r.top + 6, top: null, left: r.left });
+      } else {
+        setPos({ top: r.bottom + 6, bottom: null, left: r.left });
+      }
+    }
+    setOpen(o => !o);
+  };
+
+  return (
+    <div ref={btnRef}>
+      <button
+        onClick={handleOpen}
+        className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all duration-150",
+          open
+            ? "border-primary/30 bg-primary/10 text-primary"
+            : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+        )}>
+        <Plus size={12} />
+        Add Widget
+      </button>
+      {open && (
+        <div style={{ position: "fixed", top: pos.top ?? undefined, bottom: pos.bottom ?? undefined, left: pos.left, zIndex: 200 }}
+          className="bg-card border border-border rounded-xl p-1.5 shadow-xl flex flex-col min-w-[170px]">
+          {available.map(k => (
+            <button key={k} onClick={() => { onAdd(k); setOpen(false); }}
+              className="text-left text-sm text-foreground px-3 py-1.5 rounded-lg hover:bg-secondary cursor-pointer bg-transparent border-none transition-colors">
+              {labels[k]}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -137,7 +271,7 @@ function ColorPicker({ color, onChange }) {
   const names = ["Gold","Blue","Red","Green","Purple","Orange","Cyan","Pink","Lime","Rose"];
   return (
     <select value={color} onChange={e => onChange(e.target.value)}
-      style={{ background: SURF2, color, border: `1px solid ${color}40`, borderRadius: 7,
+      style={{ background: "var(--color-secondary)", color, border: `1px solid ${color}40`, borderRadius: 8,
         padding: "6px 10px", fontSize: 12, fontWeight: 600, minWidth: 88, cursor: "pointer" }}>
       {PALETTE.map((c, i) => <option key={c} value={c} style={{ color: c, background: "#111" }}>{names[i]}</option>)}
     </select>
@@ -164,31 +298,33 @@ function drawShots(g, shots, sc, color) {
   });
 }
 
-function drawOverlays(g, stats, sc, color, opts) {
+function drawOverlays(g, stats, sc, _color, opts) {
   if (stats.cep <= 0) return;
   const cx = sc(stats.mpiX), cy = sc(-stats.mpiY);
   if (opts.showCep) {
     const rp = Math.abs(sc(stats.cep) - sc(0));
     g.append("circle").attr("cx", cx).attr("cy", cy).attr("r", rp).attr("fill", "none")
-      .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4");
+      .attr("stroke", OC.cep).attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4");
     g.append("text").attr("x", cx + rp + 4).attr("y", cy - 4).text("CEP")
-      .attr("fill", color).attr("font-size", 9).attr("font-weight", "600");
+      .attr("fill", OC.cep).attr("font-size", 9).attr("font-weight", "600");
   }
   if (opts.showR90) {
     const rp = Math.abs(sc(stats.r90) - sc(0));
     g.append("circle").attr("cx", cx).attr("cy", cy).attr("r", rp).attr("fill", "none")
-      .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", "3,3").attr("stroke-opacity", .45);
+      .attr("stroke", OC.r90).attr("stroke-width", 1).attr("stroke-dasharray", "3,3").attr("stroke-opacity", .65);
+    g.append("text").attr("x", cx + rp + 4).attr("y", cy + 10).text("R90")
+      .attr("fill", OC.r90).attr("font-size", 9).attr("font-weight", "600");
   }
   if (opts.showEllipse && stats.covEllipse) {
     const { rx, ry, angle } = stats.covEllipse;
     g.append("ellipse").attr("cx", cx).attr("cy", cy)
       .attr("rx", Math.abs(sc(rx) - sc(0))).attr("ry", Math.abs(sc(ry) - sc(0)))
       .attr("transform", `rotate(${-angle},${cx},${cy})`).attr("fill", "none")
-      .attr("stroke", color).attr("stroke-width", .7).attr("stroke-opacity", .3);
+      .attr("stroke", OC.ellipse).attr("stroke-width", 1).attr("stroke-opacity", .5);
   }
   if (opts.showMpi) {
-    g.append("line").attr("x1", cx - 6).attr("x2", cx + 6).attr("y1", cy).attr("y2", cy).attr("stroke", color).attr("stroke-width", 1.5);
-    g.append("line").attr("x1", cx).attr("x2", cx).attr("y1", cy - 6).attr("y2", cy + 6).attr("stroke", color).attr("stroke-width", 1.5);
+    g.append("line").attr("x1", cx - 6).attr("x2", cx + 6).attr("y1", cy).attr("y2", cy).attr("stroke", OC.mpi).attr("stroke-width", 1.5);
+    g.append("line").attr("x1", cx).attr("x2", cx).attr("y1", cy - 6).attr("y2", cy + 6).attr("stroke", OC.mpi).attr("stroke-width", 1.5);
   }
 }
 
@@ -204,30 +340,93 @@ function drawAxes(svg, sc, size, m, w) {
     .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text("Y (in)");
 }
 
+// ─── Chart tooltip ────────────────────────────────────────────────────────────
+function ChartTooltip({ tip }) {
+  if (!tip) return null;
+  const style = {
+    position: "fixed", left: tip.x + 14, top: tip.y - 10,
+    pointerEvents: "none", zIndex: 100,
+    background: "#1b1b22", border: `1px solid ${tip.color ? tip.color + "40" : "rgba(255,255,255,0.13)"}`,
+    borderRadius: 8, padding: "7px 11px", fontSize: 11, lineHeight: 1.7,
+    color: "#ededf2", whiteSpace: "nowrap",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+  };
+  return (
+    <div style={style}>
+      {tip.lines.map((l, i) => (
+        <div key={i} style={i === 0 && tip.color ? { color: tip.color, fontWeight: 600 } : undefined}>{l}</div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Chart components ─────────────────────────────────────────────────────────
 function DispersionChart({ shots, stats, size = 380, opts = { showCep: true, showR90: true, showEllipse: true, showMpi: true, showGrid: true }, color = G }) {
   const ref = useRef();
+  const wrapRef = useRef();
+  const [tip, setTip] = useState(null);
+
   useEffect(() => {
     if (!ref.current || !shots.length) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
     const m = 44, w = size - 2 * m, maxR = Math.max(...shots.map(s => Math.max(Math.abs(s.x), Math.abs(s.y))), stats.r90 || 1, 1) * 1.4;
     const sc = d3.scaleLinear().domain([-maxR, maxR]).range([0, w]);
     const g = svg.append("g").attr("transform", `translate(${m},${m})`);
+
     if (opts.showGrid) sc.ticks(8).forEach(t => {
       g.append("line").attr("x1", sc(t)).attr("x2", sc(t)).attr("y1", 0).attr("y2", w).attr("stroke", GRID_CLR);
       g.append("line").attr("y1", sc(t)).attr("y2", sc(t)).attr("x1", 0).attr("x2", w).attr("stroke", GRID_CLR);
     });
     g.append("line").attr("x1", sc(0)).attr("x2", sc(0)).attr("y1", 0).attr("y2", w).attr("stroke", AXIS_CLR);
     g.append("line").attr("y1", sc(0)).attr("y2", sc(0)).attr("x1", 0).attr("x2", w).attr("stroke", AXIS_CLR);
+
+    // Crosshair lines (hidden by default)
+    const chX = g.append("line").attr("y1", 0).attr("y2", w).attr("stroke", "rgba(255,255,255,0.18)").attr("stroke-width", 1).attr("pointer-events", "none").style("display", "none");
+    const chY = g.append("line").attr("x1", 0).attr("x2", w).attr("stroke", "rgba(255,255,255,0.18)").attr("stroke-width", 1).attr("pointer-events", "none").style("display", "none");
+
     drawOverlays(g, stats, sc, color, opts);
     drawShots(g, shots, sc, color);
     drawAxes(svg, sc, size, m, w);
+
+    // Hit-test overlay — transparent circles on each shot for hover detection
+    const mpiX = stats.mpiX || 0, mpiY = stats.mpiY || 0;
+    shots.forEach(s => {
+      const cx = sc(s.x), cy = sc(-s.y);
+      g.append("circle")
+        .attr("cx", cx).attr("cy", cy).attr("r", 10)
+        .attr("fill", "transparent").attr("cursor", "crosshair")
+        .on("mouseenter", (ev) => {
+          const r = rad(s.x - mpiX, s.y - mpiY);
+          chX.attr("x1", cx).attr("x2", cx).style("display", null);
+          chY.attr("y1", cy).attr("y2", cy).style("display", null);
+          setTip({
+            x: ev.clientX, y: ev.clientY,
+            lines: [
+              `\u2116\u00a0${s.shotNum}  ${s.serial || ""}`,
+              `FPS\u00a0${s.fps}  Wt\u00a0${s.weight || "—"}`,
+              `X\u00a0${s.x}  Y\u00a0${s.y}`,
+              `Radial\u00a0${r.toFixed(3)}\u00a0in`,
+            ],
+          });
+        })
+        .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+        .on("mouseleave", () => { chX.style("display", "none"); chY.style("display", "none"); setTip(null); });
+    });
   }, [shots, stats, size, opts, color]);
-  return <svg ref={ref} width={size} height={size} style={{ background: CHART_BG, borderRadius: 10 }} />;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={size} height={size} style={{ background: CHART_BG, borderRadius: 10 }}
+        onMouseLeave={() => setTip(null)} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
 }
 
 function DispersionMulti({ sessions, size = 440, opts = { showCep: true, showR90: true, showEllipse: true, showMpi: true } }) {
   const ref = useRef();
+  const [tip, setTip] = useState(null);
+
   useEffect(() => {
     if (!ref.current || !sessions.length) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
@@ -241,10 +440,52 @@ function DispersionMulti({ sessions, size = 440, opts = { showCep: true, showR90
     });
     g.append("line").attr("x1", sc(0)).attr("x2", sc(0)).attr("y1", 0).attr("y2", w).attr("stroke", AXIS_CLR);
     g.append("line").attr("y1", sc(0)).attr("y2", sc(0)).attr("x1", 0).attr("x2", w).attr("stroke", AXIS_CLR);
+
+    // Crosshair lines
+    const chX = g.append("line").attr("y1", 0).attr("y2", w).attr("stroke", "rgba(255,255,255,0.18)").attr("stroke-width", 1).attr("pointer-events", "none").style("display", "none");
+    const chY = g.append("line").attr("x1", 0).attr("x2", w).attr("stroke", "rgba(255,255,255,0.18)").attr("stroke-width", 1).attr("pointer-events", "none").style("display", "none");
+
     sessions.forEach(d => { drawOverlays(g, d.stats, sc, d.color, opts); drawShots(g, d.shots, sc, d.color); });
     drawAxes(svg, sc, size, m, w);
+
+    // Hit-test overlay per session so tooltip includes session name + color
+    sessions.forEach(d => {
+      const mpiX = d.stats.mpiX || 0, mpiY = d.stats.mpiY || 0;
+      const sessionName = d.session?.config?.sessionName || "Session";
+      d.shots.forEach(s => {
+        const cx = sc(s.x), cy = sc(-s.y);
+        const r = rad(s.x - mpiX, s.y - mpiY);
+        g.append("circle")
+          .attr("cx", cx).attr("cy", cy).attr("r", 10)
+          .attr("fill", "transparent").attr("cursor", "crosshair")
+          .on("mouseenter", (ev) => {
+            chX.attr("x1", cx).attr("x2", cx).style("display", null);
+            chY.attr("y1", cy).attr("y2", cy).style("display", null);
+            setTip({
+              x: ev.clientX, y: ev.clientY,
+              lines: [
+                sessionName,
+                `\u2116\u00a0${s.shotNum}  ${s.serial || ""}`,
+                `FPS\u00a0${s.fps}  Wt\u00a0${s.weight || "—"}`,
+                `X\u00a0${s.x}  Y\u00a0${s.y}`,
+                `Radial\u00a0${r.toFixed(3)}\u00a0in`,
+              ],
+              color: d.color,
+            });
+          })
+          .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+          .on("mouseleave", () => { chX.style("display", "none"); chY.style("display", "none"); setTip(null); });
+      });
+    });
   }, [sessions, size, opts]);
-  return <svg ref={ref} width={size} height={size} style={{ background: CHART_BG, borderRadius: 10 }} />;
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={size} height={size} style={{ background: CHART_BG, borderRadius: 10 }}
+        onMouseLeave={() => setTip(null)} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
 }
 
 function VelHist({ shots, width = 360, color = G }) {
@@ -278,11 +519,12 @@ function VelHist({ shots, width = 360, color = G }) {
 
 function VelRad({ shots, width = 360 }) {
   const ref = useRef();
+  const [tip, setTip] = useState(null);
   useEffect(() => {
     if (!ref.current || shots.length < 2) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
     const m = { t: 15, r: 15, b: 34, l: 42 }, w = width - m.l - m.r, h = 145 - m.t - m.b;
-    const data = shots.map(s => ({ v: s.fps, r: rad(s.x, s.y) }));
+    const data = shots.map((s, i) => ({ v: s.fps, r: rad(s.x, s.y), shotNum: s.shotNum || i + 1 }));
     const x = d3.scaleLinear().domain(d3.extent(data, d => d.v)).nice().range([0, w]);
     const y = d3.scaleLinear().domain([0, d3.max(data, d => d.r) * 1.2]).nice().range([h, 0]);
     const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
@@ -290,8 +532,15 @@ function VelRad({ shots, width = 360 }) {
     gg.append("g").call(d3.axisLeft(y).ticks(3)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
     gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
     gg.selectAll("circle").data(data).join("circle")
-      .attr("cx", d => x(d.v)).attr("cy", d => y(d.r)).attr("r", 4)
-      .attr("fill", G).attr("fill-opacity", .8).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .5);
+      .attr("cx", d => x(d.v)).attr("cy", d => y(d.r)).attr("r", 5)
+      .attr("fill", G).attr("fill-opacity", .8).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .5)
+      .attr("cursor", "crosshair")
+      .on("mouseenter", function(ev, d) {
+        d3.select(this).attr("r", 7).attr("fill-opacity", 1);
+        setTip({ x: ev.clientX, y: ev.clientY, lines: [`Shot\u00a0#${d.shotNum}`, `FPS\u00a0${d.v}`, `Radial\u00a0${d.r.toFixed(3)}\u00a0in`] });
+      })
+      .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+      .on("mouseleave", function() { d3.select(this).attr("r", 5).attr("fill-opacity", .8); setTip(null); });
     const mx = mean(data.map(d => d.v)), my = mean(data.map(d => d.r));
     const num = data.reduce((s2, d) => s2 + (d.v - mx) * (d.r - my), 0), den = data.reduce((s2, d) => s2 + (d.v - mx) ** 2, 0);
     if (den) {
@@ -302,40 +551,59 @@ function VelRad({ shots, width = 360 }) {
     svg.append("text").attr("x", width / 2).attr("y", 142).attr("text-anchor", "middle")
       .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text("FPS vs Radial (in)");
   }, [shots, width]);
-  return <svg ref={ref} width={width} height={145} style={{ background: CHART_BG, borderRadius: 10 }} />;
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={width} height={145} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
 }
 
-function RadialTrack({ shots, width = 360 }) {
+function RadialTrack({ shots, width = 360, color = G }) {
   const ref = useRef();
+  const [tip, setTip] = useState(null);
   useEffect(() => {
     if (!ref.current || shots.length < 2) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
     const m = { t: 15, r: 15, b: 30, l: 42 }, w = width - m.l - m.r, h = 125 - m.t - m.b;
-    const data = shots.map((s, i) => ({ i: i + 1, r: rad(s.x, s.y) }));
+    const data = shots.map((s, i) => ({ i: i + 1, r: rad(s.x, s.y), fps: s.fps }));
     const x = d3.scaleLinear().domain([1, shots.length]).range([0, w]);
     const y = d3.scaleLinear().domain([0, d3.max(data, d => d.r) * 1.2]).nice().range([h, 0]);
     const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
     gg.append("g").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(Math.min(shots.length, 10)).tickFormat(d3.format("d"))).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
     gg.append("g").call(d3.axisLeft(y).ticks(3)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
     gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
-    gg.append("path").datum(data).attr("fill", "none").attr("stroke", G).attr("stroke-width", 1.5)
+    gg.append("path").datum(data).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.5)
       .attr("d", d3.line().x(d => x(d.i)).y(d => y(d.r)).curve(d3.curveMonotoneX));
     gg.selectAll("circle").data(data).join("circle")
-      .attr("cx", d => x(d.i)).attr("cy", d => y(d.r)).attr("r", 3)
-      .attr("fill", G).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4);
+      .attr("cx", d => x(d.i)).attr("cy", d => y(d.r)).attr("r", 4)
+      .attr("fill", color).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4)
+      .attr("cursor", "crosshair")
+      .on("mouseenter", function(ev, d) {
+        d3.select(this).attr("r", 6);
+        setTip({ x: ev.clientX, y: ev.clientY, lines: [`Shot\u00a0#${d.i}`, `Radial\u00a0${d.r.toFixed(3)}\u00a0in`, `FPS\u00a0${d.fps}`] });
+      })
+      .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+      .on("mouseleave", function() { d3.select(this).attr("r", 4); setTip(null); });
     svg.append("text").attr("x", width / 2).attr("y", 122).attr("text-anchor", "middle")
       .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text("Shot # → Radial (in)");
   }, [shots, width]);
-  return <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />;
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
 }
 
-function FpsTrack({ shots, width = 360 }) {
+function FpsTrack({ shots, width = 360, color = G }) {
   const ref = useRef();
+  const [tip, setTip] = useState(null);
   useEffect(() => {
     if (!ref.current || shots.length < 2) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
     const m = { t: 15, r: 15, b: 30, l: 42 }, w = width - m.l - m.r, h = 125 - m.t - m.b;
-    const data = shots.map((s, i) => ({ i: i + 1, v: s.fps }));
+    const data = shots.map((s, i) => ({ i: i + 1, v: s.fps, r: rad(s.x, s.y) }));
     const x = d3.scaleLinear().domain([1, shots.length]).range([0, w]);
     const y = d3.scaleLinear().domain([d3.min(data, d => d.v) - 10, d3.max(data, d => d.v) + 10]).range([h, 0]);
     const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
@@ -344,16 +612,28 @@ function FpsTrack({ shots, width = 360 }) {
     gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
     const mv = mean(data.map(d => d.v));
     gg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(mv)).attr("y2", y(mv))
-      .attr("stroke", G).attr("stroke-width", 1).attr("stroke-dasharray", "4,3").attr("stroke-opacity", .45);
-    gg.append("path").datum(data).attr("fill", "none").attr("stroke", G).attr("stroke-width", 1.5)
+      .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", "4,3").attr("stroke-opacity", .45);
+    gg.append("path").datum(data).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.5)
       .attr("d", d3.line().x(d => x(d.i)).y(d => y(d.v)).curve(d3.curveMonotoneX));
     gg.selectAll("circle").data(data).join("circle")
-      .attr("cx", d => x(d.i)).attr("cy", d => y(d.v)).attr("r", 3)
-      .attr("fill", G).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4);
+      .attr("cx", d => x(d.i)).attr("cy", d => y(d.v)).attr("r", 4)
+      .attr("fill", color).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4)
+      .attr("cursor", "crosshair")
+      .on("mouseenter", function(ev, d) {
+        d3.select(this).attr("r", 6);
+        setTip({ x: ev.clientX, y: ev.clientY, lines: [`Shot\u00a0#${d.i}`, `FPS\u00a0${d.v}`, `Radial\u00a0${d.r.toFixed(3)}\u00a0in`] });
+      })
+      .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+      .on("mouseleave", function() { d3.select(this).attr("r", 4); setTip(null); });
     svg.append("text").attr("x", width / 2).attr("y", 122).attr("text-anchor", "middle")
       .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text("Shot # → FPS");
   }, [shots, width]);
-  return <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />;
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
 }
 
 function XYTrack({ shots, width = 360 }) {
@@ -385,29 +665,31 @@ function XYTrack({ shots, width = 360 }) {
 
 function ShotTable({ shots }) {
   const hdrs = ["#","Serial","FPS","X","Y","Wt","Rad","Time"];
-  const right = ["FPS","X","Y","Rad"];
+  const right = ["FPS","X","Y","Wt","Rad"];
   return (
     <div className="overflow-auto max-h-52">
-      <table className="w-full" style={{ fontSize: 12, borderCollapse: "collapse" }}>
+      <table className="w-full text-xs border-collapse">
         <thead>
-          <tr style={{ borderBottom: `1px solid ${BD}` }}>
+          <tr className="border-b border-border">
             {hdrs.map(h => (
-              <th key={h} style={{ color: TX2, fontWeight: 600, textTransform: "uppercase", fontSize: 10,
-                letterSpacing: "0.06em", padding: "6px 10px", textAlign: right.includes(h) ? "right" : "left" }}>{h}</th>
+              <th key={h} className={cn(
+                "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
+                right.includes(h) ? "text-right" : "text-left"
+              )}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {shots.map((s, i) => (
-            <tr key={i} style={{ borderBottom: `1px solid ${BD}` }}>
-              <td style={{ color: TX2, padding: "7px 10px" }}>{s.shotNum}</td>
-              <td style={{ color: TX2, padding: "7px 10px", fontFamily: "monospace", fontSize: 11 }}>{s.serial}</td>
-              <td style={{ color: TX, padding: "7px 10px", textAlign: "right", fontFamily: "monospace" }}>{s.fps}</td>
-              <td style={{ color: TX, padding: "7px 10px", textAlign: "right", fontFamily: "monospace" }}>{s.x}</td>
-              <td style={{ color: TX, padding: "7px 10px", textAlign: "right", fontFamily: "monospace" }}>{s.y}</td>
-              <td style={{ color: TX2, padding: "7px 10px", textAlign: "right", fontFamily: "monospace" }}>{s.weight || "—"}</td>
-              <td style={{ color: TX2, padding: "7px 10px", textAlign: "right", fontFamily: "monospace" }}>{rad(s.x, s.y).toFixed(1)}</td>
-              <td style={{ color: TX2, padding: "7px 10px" }}>{s.timestamp}</td>
+            <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40">
+              <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
+              <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
+              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.fps}</td>
+              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.x}</td>
+              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.y}</td>
+              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{s.weight || "—"}</td>
+              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
+              <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
             </tr>
           ))}
         </tbody>
@@ -416,81 +698,134 @@ function ShotTable({ shots }) {
   );
 }
 
-// ─── Calculations panel ───────────────────────────────────────────────────────
-function CalcPanel({ shots, stats }) {
-  const vs = shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y));
-  if (vs.length < 2) return <p style={{ color: TX2 }}>Need at least 2 shots for calculations.</p>;
-  const xs = vs.map(s => s.x), ys = vs.map(s => s.y), fps = vs.map(s => s.fps);
-  const mpiX = mean(xs), mpiY = mean(ys);
-  const radii = vs.map(s => rad(s.x - mpiX, s.y - mpiY));
-  const sortedR = [...radii].sort((a, b) => a - b);
+// ─── AutoSizeChart — fills its container and passes px dims to render fn ──────
+function AutoSizeChart({ render: renderFn }) {
+  const ref = useRef();
+  const [dims, setDims] = useState(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([e]) => {
+      const { width, height } = e.contentRect;
+      if (width > 0 && height > 0) setDims({ w: Math.floor(width), h: Math.floor(height) });
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return <div ref={ref} className="w-full h-full min-h-[160px]">{dims ? renderFn(dims.w, dims.h) : null}</div>;
+}
 
-  const defs = [
-    { name: "Mean Point of Impact (MPI)", value: `X: ${mpiX.toFixed(3)}, Y: ${mpiY.toFixed(3)}`, desc: "The average center of all your shots. If your sights were perfect, this would be (0, 0). The offset tells you how far your group center is from the bore sight.", calc: `MPI X = (${xs.map(x => x).join(" + ")}) / ${vs.length} = ${mpiX.toFixed(3)}\nMPI Y = (${ys.map(y => y).join(" + ")}) / ${vs.length} = ${mpiY.toFixed(3)}` },
-    { name: "MPI Offset", value: `${rad(mpiX, mpiY).toFixed(3)} in`, desc: "The straight-line distance from bore sight (0,0) to the MPI.", calc: `Offset = sqrt(MPI_X² + MPI_Y²) = sqrt(${mpiX.toFixed(3)}² + ${mpiY.toFixed(3)}²) = ${rad(mpiX, mpiY).toFixed(3)}` },
-    { name: "CEP (Circular Error Probable)", value: `${stats.cep.toFixed(3)} in`, desc: "The radius of a circle centered on the MPI that contains 50% of your shots. The primary precision metric — lower is tighter.", calc: `Radial distances from MPI (sorted): [${sortedR.map(r => r.toFixed(2)).join(", ")}]\n50th percentile index: floor(${vs.length} × 0.5) = ${Math.floor(vs.length * 0.5)}\nCEP = ${stats.cep.toFixed(3)} in` },
-    { name: "R90 (90th Percentile Radius)", value: `${stats.r90.toFixed(3)} in`, desc: "The radius of a circle centered on the MPI that contains 90% of your shots.", calc: `90th percentile index: floor(${vs.length} × 0.9) = ${Math.min(Math.floor(vs.length * 0.9), vs.length - 1)}\nR90 = ${stats.r90.toFixed(3)} in` },
-    { name: "Mean Radius", value: `${stats.mr.toFixed(3)} in`, desc: "Average distance of all shots from the MPI. More sensitive to outliers than CEP.", calc: `Radii: [${radii.map(r => r.toFixed(2)).join(", ")}]\nMean Radius = ${stats.mr.toFixed(3)} in` },
-    { name: "Extreme Spread (ES)", value: `${stats.es.toFixed(3)} in`, desc: "Diameter of the smallest circle that encloses all shots. Absolute worst-to-worst spread.", calc: `Max radial = ${Math.max(...radii).toFixed(3)}\nES = max × 2 = ${stats.es.toFixed(3)} in` },
-    { name: "SD X", value: `${stats.sdX.toFixed(3)} in`, desc: "Horizontal spread standard deviation. If SD X >> SD Y, group is elongated horizontally.", calc: `X: [${xs.join(", ")}]\nSD X = ${stats.sdX.toFixed(3)} in` },
-    { name: "SD Y", value: `${stats.sdY.toFixed(3)} in`, desc: "Vertical spread standard deviation.", calc: `Y: [${ys.join(", ")}]\nSD Y = ${stats.sdY.toFixed(3)} in` },
-    { name: "SD Radial", value: `${stats.sdR.toFixed(3)} in`, desc: "Standard deviation of radial distances from MPI.", calc: `Radii: [${radii.map(r => r.toFixed(2)).join(", ")}]\nSD Radial = ${stats.sdR.toFixed(3)} in` },
-    { name: "Mean FPS", value: `${stats.meanV.toFixed(1)} fps`, desc: "Average velocity across all shots.", calc: `FPS: [${fps.join(", ")}]\nMean = ${stats.meanV.toFixed(1)} fps` },
-    { name: "SD FPS", value: `${stats.sdV.toFixed(1)} fps`, desc: "Shot-to-shot velocity consistency — lower means more uniform propellant burn.", calc: `SD = ${stats.sdV.toFixed(1)} fps` },
-    { name: "ES FPS", value: `${stats.esV.toFixed(1)} fps`, desc: "Fastest minus slowest shot. Full velocity range.", calc: `Max = ${Math.max(...fps)}, Min = ${Math.min(...fps)}\nES = ${stats.esV.toFixed(1)} fps` },
-    { name: "90% Covariance Ellipse", value: stats.covEllipse ? `${stats.covEllipse.rx.toFixed(2)} × ${stats.covEllipse.ry.toFixed(2)} in, ${stats.covEllipse.angle.toFixed(1)}°` : "N/A", desc: "Reveals the true shape and tilt of dispersion. If nearly circular, spread is uniform in all directions.", calc: stats.covEllipse ? `Semi-major: ${stats.covEllipse.rx.toFixed(3)} in\nSemi-minor: ${stats.covEllipse.ry.toFixed(3)} in\nRotation: ${stats.covEllipse.angle.toFixed(1)}°` : "Requires 3+ shots" },
-  ];
+// ─── SortableWidget — drag-to-reorder handle + corner resize ─────────────────
+function SortableWidget({ id, children, size, onResize, fullWidth }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const nodeRef = useRef(null);
+  const startRef = useRef(null);
+  const setRefs = useCallback((n) => { setNodeRef(n); nodeRef.current = n; }, [setNodeRef]);
+
+  const onResizeDown = useCallback((e) => {
+    e.preventDefault(); e.stopPropagation();
+    const rect = nodeRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    startRef.current = { w: rect.width, h: rect.height, mx: e.clientX, my: e.clientY };
+    const onMove = (e) => {
+      const { w, h, mx, my } = startRef.current;
+      onResize({ w: Math.max(280, w + e.clientX - mx), h: Math.max(200, h + e.clientY - my) });
+    };
+    const onUp = () => { startRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [onResize]);
 
   return (
-    <div className="space-y-3">
-      <div style={{ background: SURF2, border: `1px solid ${BD}`, borderRadius: 10, padding: 16 }}>
-        <div style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>How to read this</div>
-        <p style={{ color: TX2, fontSize: 12, lineHeight: 1.6, margin: 0 }}>Each metric shows its value, what it means, and the calculation using your shot data. Distance metrics are in inches. All dispersion metrics are calculated relative to the MPI — isolating precision from accuracy.</p>
+    <div
+      ref={setRefs}
+      style={{
+        transform: dndCSS.Transform.toString(transform),
+        transition: isDragging ? undefined : transition,
+        ...(size ? { width: size.w, height: size.h } : {}),
+        opacity: isDragging ? 0.4 : 1,
+        zIndex: isDragging ? 50 : undefined,
+      }}
+      className={cn("relative flex flex-col", !size && (fullWidth ? "w-full" : "w-full lg:w-1/2"))}
+    >
+      {/* Drag handle */}
+      <button {...attributes} {...listeners}
+        className="absolute top-[18px] right-10 z-10 cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/25 hover:text-muted-foreground/70 transition-colors"
+        aria-label="Drag to reorder">
+        <GripVertical size={13} />
+      </button>
+      {children}
+      {/* Resize handle */}
+      <div onMouseDown={onResizeDown}
+        className="absolute bottom-2 right-2 z-10 cursor-se-resize text-muted-foreground/25 hover:text-muted-foreground/70 transition-colors select-none"
+        title="Drag to resize">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M10 1L1 10M7.5 1L1 7.5M10 4L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
       </div>
-      {defs.map(d => (
-        <div key={d.name} style={{ background: SURF2, border: `1px solid ${BD}`, borderRadius: 10, padding: 16 }}>
-          <div className="flex items-baseline justify-between flex-wrap gap-2" style={{ marginBottom: 6 }}>
-            <h4 style={{ color: TX, fontSize: 13, fontWeight: 600, margin: 0 }}>{d.name}</h4>
-            <span style={{ color: G, fontFamily: "monospace", fontWeight: 600, fontSize: 13 }}>{d.value}</span>
-          </div>
-          <p style={{ color: TX2, fontSize: 12, lineHeight: 1.6, marginBottom: 10 }}>{d.desc}</p>
-          <pre style={{ color: TX2, background: CHART_BG, padding: "10px 12px", borderRadius: 7, fontSize: 10, overflowX: "auto", whiteSpace: "pre-wrap", margin: 0, border: `1px solid ${BD}` }}>{d.calc}</pre>
-        </div>
-      ))}
     </div>
   );
 }
 
 // ─── Widget registry ──────────────────────────────────────────────────────────
 const WIDGETS = {
-  dispersion: { label: "Shot Dispersion", default: true, render: (s, vs, st, opts) => <DispersionChart shots={vs} stats={st} size={380} opts={opts} /> },
-  velHist:    { label: "Velocity Distribution", default: true, render: (s, vs) => <VelHist shots={vs} /> },
-  velRad:     { label: "FPS vs Radial", default: true, render: (s, vs) => <VelRad shots={vs} /> },
-  metrics:    { label: "Key Metrics", default: true, render: (s, vs, st) => (
-    <div className="grid grid-cols-2 gap-2">
-      {[["CEP",st.cep.toFixed(2)+" in",1],["R90",st.r90.toFixed(2)+" in"],["SD X",st.sdX.toFixed(2)],["SD Y",st.sdY.toFixed(2)],["Mean FPS",st.meanV.toFixed(1),1],["SD FPS",st.sdV.toFixed(1)],["ES FPS",st.esV.toFixed(1)],["Mean Rad",st.mr.toFixed(2)],["MPI X/Y",st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1)],["Ext Spread",st.es.toFixed(2)]].map(([k,v,g]) => <SB key={k} label={k} value={v} gold={g} />)}
-    </div>
+  dispersion: { label: "Shot Dispersion", default: true, render: (s, vs, st, opts, toggle, setOpt) => (
+    <>
+      <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
+        {[["showEllipse","Ellipse",OC.ellipse],["showGrid","Grid"]].map(([k,l,c]) => (
+          <Toggle key={k} label={l} on={opts[k]} onToggle={() => toggle(k)} color={c} />
+        ))}
+        <ColorPicker color={opts.color || G} onChange={c => setOpt("color", c)} />
+      </div>
+      <AutoSizeChart render={(w, h) => <DispersionChart shots={vs} stats={st} size={Math.min(w, h) - 12} opts={opts} color={opts.color || G} />} />
+    </>
   )},
-  calculations: { label: "Calculations & Legend", default: false, render: (s, vs, st) => <CalcPanel shots={vs} stats={st} /> },
-  radTrack:   { label: "Radial Tracking", default: false, render: (s, vs) => <RadialTrack shots={vs} /> },
-  fpsTrack:   { label: "FPS Tracking", default: false, render: (s, vs) => <FpsTrack shots={vs} /> },
-  xyTrack:    { label: "X/Y Deviation", default: false, render: (s, vs) => <XYTrack shots={vs} /> },
+  velHist:    { label: "Velocity Distribution", default: true, render: (s, vs, st, opts) => (
+    <AutoSizeChart render={(w) => <VelHist shots={vs} width={w - 8} color={opts.color || G} />} />
+  )},
+  velRad:     { label: "FPS vs Radial", default: true, render: (s, vs) => (
+    <AutoSizeChart render={(w) => <VelRad shots={vs} width={w - 8} />} />
+  )},
+  metrics:    { label: "Key Metrics", default: true, render: (s, vs, st, opts, toggle) => {
+    const OMAP = { "CEP": "showCep", "R90": "showR90", "MPI X/Y": "showMpi" };
+    return (
+      <>
+      <p className="text-[11px] text-muted-foreground/60 mb-2 mt-0">Click CEP, R90, or MPI to toggle overlays on the chart.</p>
+      <div className="grid grid-cols-2 gap-2">
+        {[["CEP",st.cep.toFixed(2)+" in",0,OC.cep],["R90",st.r90.toFixed(2)+" in",0,OC.r90],["SD X",st.sdX.toFixed(2)],["SD Y",st.sdY.toFixed(2)],["Mean FPS",st.meanV.toFixed(1),0,opts.color||G],["SD FPS",st.sdV.toFixed(1)],["ES FPS",st.esV.toFixed(1)],["Mean Rad",st.mr.toFixed(2)],["MPI X/Y",st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1),0,OC.mpi],["Ext Spread",st.es.toFixed(2)]].map(([k,v,g,ac]) => {
+          const ok = OMAP[k];
+          return <SB key={k} label={k} value={v} gold={g} accentColor={ac}
+            onClick={ok && toggle ? () => toggle(ok) : undefined}
+            active={ok ? opts[ok] : undefined} />;
+        })}
+      </div>
+      </>
+    );
+  }},
+  radTrack:   { label: "Radial Tracking", default: false, render: (s, vs, st, opts) => (
+    <AutoSizeChart render={(w) => <RadialTrack shots={vs} width={w - 8} color={opts.color || G} />} />
+  )},
+  fpsTrack:   { label: "FPS Tracking", default: false, render: (s, vs, st, opts) => (
+    <AutoSizeChart render={(w) => <FpsTrack shots={vs} width={w - 8} color={opts.color || G} />} />
+  )},
+  xyTrack:    { label: "X/Y Deviation", default: false, render: (s, vs) => (
+    <AutoSizeChart render={(w) => <XYTrack shots={vs} width={w - 8} />} />
+  )},
   shotTable:  { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
 };
 const DEF_LAYOUT = Object.keys(WIDGETS).filter(k => WIDGETS[k].default);
-const DEF_DISP = { showCep: true, showR90: true, showEllipse: true, showMpi: true, showGrid: true };
+const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
-const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, VARS: 4, CMP: 5, EDIT: 6 };
+const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5 };
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
-function SecLabel({ children }) {
-  return <div style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{children}</div>;
+function SecLabel({ children, className = "" }) {
+  return <div className={cn("text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", className)}>{children}</div>;
 }
-function CardSection({ title, children, style = {} }) {
+function CardSection({ title, children, style = {}, className = "" }) {
   return (
-    <div style={{ ...card, padding: 24, ...style }}>
+    <div className={cn("bg-card border border-border rounded-xl p-6", className)} style={style}>
       {title && (
-        <div style={{ marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${BD}` }}>
+        <div className="mb-4 pb-3.5 border-b border-border">
           <SecLabel>{title}</SecLabel>
         </div>
       )}
@@ -498,8 +833,94 @@ function CardSection({ title, children, style = {} }) {
     </div>
   );
 }
-function Empty({ children }) {
-  return <p style={{ color: TX2, textAlign: "center", padding: "40px 0", fontSize: 13, margin: 0 }}>{children}</p>;
+function Empty({ children, icon, action }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+      {icon && (
+        <div className="size-9 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground/50">
+          {icon}
+        </div>
+      )}
+      <p className="text-sm text-muted-foreground max-w-[240px] leading-relaxed m-0">{children}</p>
+      {action && action}
+    </div>
+  );
+}
+
+// ─── Stable layout components (defined at module scope to avoid remount on re-render) ──
+function PageHead({ title, sub }) {
+  return (
+    <div className="mb-8">
+      <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-1.5">{title}</h1>
+      {sub && <p className="text-sm text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function TblInput({ value, onChange }) {
+  return (
+    <input type="number" value={value ?? ""} onChange={onChange}
+      className="w-full rounded bg-secondary border border-border px-1.5 py-0.5 text-right text-xs text-foreground font-mono" />
+  );
+}
+
+function AppNavBar({ phase, navItems, sessionCount }) {
+  const scrolled = useScroll(10);
+  return (
+    <header className={cn(
+      "sticky top-0 z-50 w-full border-b border-transparent transition-[background,border-color,backdrop-filter] duration-300",
+      scrolled
+        ? "bg-background/90 supports-[backdrop-filter]:bg-background/70 border-border backdrop-blur-lg"
+        : "bg-background"
+    )}>
+      <nav className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-7">
+        <div className="text-primary font-bold text-xs tracking-[0.12em] uppercase shrink-0">
+          Ballistic WS
+        </div>
+        <div className="flex items-center gap-0.5">
+          {navItems.map(item => {
+            const isActive = phase === item.ph;
+            return (
+              <button
+                key={item.label}
+                disabled={item.disabled}
+                onClick={item.disabled ? undefined : item.onClick}
+                className={cn(
+                  "h-8 px-3 rounded-lg text-sm font-medium transition-colors duration-150",
+                  "bg-transparent border border-transparent cursor-pointer",
+                  isActive
+                    ? "text-primary bg-primary/10 border-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  item.disabled && "opacity-30 cursor-not-allowed pointer-events-none"
+                )}>
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-xs text-muted-foreground shrink-0">
+          {sessionCount} session{sessionCount !== 1 ? "s" : ""}
+        </span>
+      </nav>
+    </header>
+  );
+}
+
+function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, dbError, onDismissError }) {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <AppNavBar phase={phase} navItems={navItems} sessionCount={sessionCount} />
+      <main style={{ maxWidth: maxW, margin: "0 auto", padding: "40px 28px 60px" }}>
+        {children}
+      </main>
+      {dbError && (
+        <div className="fixed bottom-4 right-4 z-[400] bg-destructive text-white text-sm px-4 py-3 rounded-lg shadow-xl flex items-center gap-3">
+          <span>{dbError}</span>
+          <button onClick={onDismissError} className="font-bold opacity-70 hover:opacity-100 cursor-pointer bg-transparent border-none text-white">✕</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
@@ -512,6 +933,7 @@ export default function App() {
   const [editSessionId, setEditSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef();
   const [newVarName, setNewVarName] = useState("");
+  const [adding, setAdding] = useState(false);
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
@@ -525,37 +947,109 @@ export default function App() {
   const [esShotEditVal, setEsShotEditVal] = useState({});
   const [layout, setLayout] = useState(DEF_LAYOUT);
   const [dispOpts, setDispOpts] = useState(DEF_DISP);
-  const [showPanel, setShowPanel] = useState(false);
   const [cmpSlots, setCmpSlots] = useState([{ id: null, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]);
   const [cmpDispOpts, setCmpDispOpts] = useState(DEF_DISP);
-  const [cmpShowPanel, setCmpShowPanel] = useState(false);
+  const [cmpMetricsOpen, setCmpMetricsOpen] = useState(false);
+  const [cmpPickerOpen, setCmpPickerOpen] = useState(true);
+  const [savedComparisons, setSavedComparisons] = useState([]);
   const [cmpMetrics, setCmpMetrics] = useState(DEF_CMP_METRICS);
   const [cmpWidgets, setCmpWidgets] = useState(["overlay","metrics"]);
   const [cmpTitle, setCmpTitle] = useState("");
+  const [cmpBy, setCmpBy] = useState("");
+  const [cmpFilters, setCmpFilters] = useState({});
+  const [cmpHoverTip, setCmpHoverTip] = useState(null);
+  const [histFilters, setHistFilters] = useState({});
+  const [histSearch, setHistSearch] = useState("");
+  const [widgetSizes, setWidgetSizes] = useState({});
+  const [cmpWidgetSizes, setCmpWidgetSizes] = useState({});
+  const [authed, setAuthed] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [dbError, setDbError] = useState(null);
+
+  // Auto-deselect sessions that no longer match active filters
+  useEffect(() => {
+    setCmpSlots(p => p.filter(sl => {
+      const s = log.find(x => x.id === sl.id);
+      if (!s) return false;
+      return Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v);
+    }));
+  }, [cmpFilters]);
 
   const existingCount = useMemo(() => log.reduce((c, s) => s.config.rifleRate === cfg.rifleRate ? c + s.shots.length : c, 0), [log, cfg.rifleRate]);
+  const loadAllData = async () => {
+    try {
+      const [settings, sessions, comparisons] = await Promise.all([
+        db.getSettings(),
+        db.getSessions(),
+        db.getComparisons(),
+      ]);
+      if (settings.opts)   setOpts(p => ({ ...p, ...settings.opts }));
+      if (settings.vars)   setVars(settings.vars);
+      if (settings.layout) {
+        if (settings.layout.layout)     setLayout(settings.layout.layout);
+        if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
+        if (settings.layout.cmpMetrics) setCmpMetrics(settings.layout.cmpMetrics);
+        if (settings.layout.cmpWidgets) setCmpWidgets(settings.layout.cmpWidgets);
+      }
+      setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
+      setSavedComparisons(comparisons);
+    } catch (err) {
+      setDbError('Failed to load data: ' + err.message);
+    }
+  };
+
   useEffect(() => {
     (async () => {
-      const l = await ld(SK); if (l) setLog(l);
-      const o = await ld(OK); if (o) setOpts(p => ({ ...p, ...o }));
-      const cv = await ld(CVK); if (cv) setVars(cv);
-      const ly = await ld(LK); if (ly) { if (ly.layout) setLayout(ly.layout); if (ly.dispOpts) setDispOpts(ly.dispOpts); if (ly.cmpMetrics) setCmpMetrics(ly.cmpMetrics); if (ly.cmpWidgets) setCmpWidgets(ly.cmpWidgets); }
+      const session = await db.getSession();
+      if (session) {
+        setAuthed(true);
+        await loadAllData();
+      }
+      setAuthChecked(true);
     })();
   }, []);
 
+  useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); } }, [phase]);
+
   const saveLayoutAll = useCallback(async upd => { const c = { layout, dispOpts, cmpMetrics, cmpWidgets, ...upd }; await sv(LK, c); }, [layout, dispOpts, cmpMetrics, cmpWidgets]);
+
+  const saveComparison = useCallback(async (title, slots, filters, by, metrics, widgets) => {
+    const name = title.trim() || `Comparison ${savedComparisons.length + 1}`;
+    const entry = { id: Date.now(), name, title, slots, filters, by, metrics, widgets };
+    const next = [...savedComparisons, entry];
+    setSavedComparisons(next);
+    await sv(CK, next);
+  }, [savedComparisons]);
+
+  const deleteComparison = useCallback(async (id) => {
+    const next = savedComparisons.filter(c => c.id !== id);
+    setSavedComparisons(next);
+    await sv(CK, next);
+  }, [savedComparisons]);
+
+  const loadComparison = useCallback((c) => {
+    setCmpTitle(c.title || "");
+    setCmpSlots(c.slots.filter(sl => !sl.id || log.some(s => s.id === sl.id)));
+    setCmpFilters(c.filters || {});
+    setCmpBy(c.by || "");
+    setCmpMetrics(c.metrics || DEF_CMP_METRICS);
+    setCmpWidgets(c.widgets || ["overlay","metrics"]);
+  }, [log]);
   const toggleWidget = k => { setLayout(p => { const n = p.includes(k) ? p.filter(x => x !== k) : [...p, k]; saveLayoutAll({ layout: n }); return n; }); };
-  const moveWidget = (k, dir) => { setLayout(p => { const i = p.indexOf(k); if (i < 0) return p; const ni = i + dir; if (ni < 0 || ni >= p.length) return p; const n = [...p]; [n[i], n[ni]] = [n[ni], n[i]]; saveLayoutAll({ layout: n }); return n; }); };
   const toggleDisp = k => { setDispOpts(p => { const n = { ...p, [k]: !p[k] }; saveLayoutAll({ dispOpts: n }); return n; }); };
+  const setDispOpt = (k, v) => { setDispOpts(p => { const n = { ...p, [k]: v }; saveLayoutAll({ dispOpts: n }); return n; }); };
   const toggleCmpMetric = label => { setCmpMetrics(p => { const n = p.includes(label) ? p.filter(x => x !== label) : [...p, label]; saveLayoutAll({ cmpMetrics: n }); return n; }); };
   const toggleCmpWidget = k => { setCmpWidgets(p => { const n = p.includes(k) ? p.filter(x => x !== k) : [...p, k]; saveLayoutAll({ cmpWidgets: n }); return n; }); };
-  const moveCmpWidget = (k, dir) => { setCmpWidgets(p => { const i = p.indexOf(k); if (i < 0) return p; const ni = i + dir; if (ni < 0 || ni >= p.length) return p; const n = [...p]; [n[i], n[ni]] = [n[ni], n[i]]; saveLayoutAll({ cmpWidgets: n }); return n; }); };
+
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const onWidgetDragEnd = ({ active, over }) => { if (!over || active.id === over.id) return; setLayout(p => { const n = arrayMove(p, p.indexOf(active.id), p.indexOf(over.id)); saveLayoutAll({ layout: n }); return n; }); };
+  const onCmpWidgetDragEnd = ({ active, over }) => { if (!over || active.id === over.id) return; setCmpWidgets(p => { const n = arrayMove(p, p.indexOf(active.id), p.indexOf(over.id)); saveLayoutAll({ cmpWidgets: n }); return n; }); };
 
   const total = parseInt(cfg.shotCount) || 0;
   const validShots = useMemo(() => shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y)), [shots]);
   const stats = useMemo(() => calcStats(shots), [shots]);
   const addOption = useCallback(async (key, val) => { setOpts(p => { const n = { ...p, [key]: [...(p[key] || []), val] }; sv(OK, n); return n; }); }, []);
-  const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await sv(CVK, nv); setOpts(p => { const n = { ...p, [key]: [] }; sv(OK, n); return n; }); setNewVarName(""); };
+  const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await sv(CVK, nv); setOpts(p => { const n = { ...p, [key]: [] }; sv(OK, n); return n; }); setNewVarName(""); setAdding(false); };
   const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); sv(CVK, n); return n; }); };
   const updateLog = async nl => { setLog(nl); await sv(SK, nl); };
   const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
@@ -577,108 +1071,95 @@ export default function App() {
   const viewed = log.find(s => s.id === viewId);
   const esStats = useMemo(() => calcStats(esShots), [esShots]);
 
-  // ─── Persistent top nav ─────────────────────────────────────────────────────
-  const NavBar = () => {
-    const navItems = [
-      { label: "Setup",     ph: P.SETUP,   onClick: newSession },
-      { label: "Fire",      ph: P.FIRE,    disabled: phase !== P.FIRE },
-      { label: "Results",   ph: P.RESULTS, disabled: !viewId, onClick: () => setPhase(P.RESULTS) },
-      { label: "History",   ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
-      { label: "Compare",   ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots(log.slice(-2).map((s, i) => ({ id: s.id, color: PALETTE[i] }))); setPhase(P.CMP); } },
-      { label: "Variables", ph: P.VARS,    onClick: () => setPhase(P.VARS) },
-    ];
-    return (
-      <header style={{ background: SURF, borderBottom: `1px solid ${BD}`, position: "sticky", top: 0, zIndex: 50 }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 28px", display: "flex", alignItems: "center", height: 54, gap: 28 }}>
-          <div style={{ color: G, fontWeight: 700, fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}>
-            Ballistic WS
-          </div>
-          <nav style={{ display: "flex", gap: 2, flex: 1 }}>
-            {navItems.map(item => (
-              <button key={item.label} disabled={item.disabled}
-                onClick={item.disabled ? undefined : (item.onClick || (() => setPhase(item.ph)))}
-                style={{
-                  padding: "5px 14px", borderRadius: 7, fontSize: 13, fontWeight: 500,
-                  background: phase === item.ph ? `${G}18` : "transparent",
-                  color: phase === item.ph ? G : TX2,
-                  border: `1px solid ${phase === item.ph ? `${G}28` : "transparent"}`,
-                  cursor: item.disabled ? "default" : "pointer",
-                  opacity: item.disabled ? 0.35 : 1,
-                  transition: "all 0.15s", fontFamily: FONT,
-                }}
-              >{item.label}</button>
-            ))}
-          </nav>
-          <span style={{ color: TX2, fontSize: 12, flexShrink: 0 }}>{log.length} session{log.length !== 1 ? "s" : ""}</span>
-        </div>
-      </header>
-    );
-  };
+  // ─── Nav items (constructed here so callbacks close over current state) ────
+  const navItems = [
+    { label: "Setup",   ph: P.SETUP,   onClick: newSession },
+    { label: "Fire",    ph: P.FIRE,    disabled: phase !== P.FIRE },
+    { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
+    { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
+    { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
+  ];
 
-  // Page shell — wraps all phase content
-  const Shell = ({ children, maxW = "1060px" }) => (
-    <div style={{ background: BG, minHeight: "100vh", fontFamily: FONT, color: TX }}>
-      <NavBar />
-      <main style={{ maxWidth: maxW, margin: "0 auto", padding: "40px 28px 60px" }}>
-        {children}
-      </main>
+
+  if (!authChecked) return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <span className="text-muted-foreground text-sm">Loading…</span>
     </div>
   );
 
-  // Page-level heading block
-  const PageHead = ({ title, sub }) => (
-    <div style={{ marginBottom: 32 }}>
-      <h1 style={{ color: TX, fontSize: 22, fontWeight: 700, margin: "0 0 6px", letterSpacing: "-0.01em" }}>{title}</h1>
-      {sub && <p style={{ color: TX2, fontSize: 13, margin: 0 }}>{sub}</p>}
-    </div>
-  );
-
-  // Inline table edit input
-  const TblInput = ({ value, onChange }) => (
-    <input type="number" value={value ?? ""} onChange={onChange}
-      style={{ width: 60, background: SURF2, border: `1px solid ${BD_HI}`, borderRadius: 5,
-        padding: "3px 6px", textAlign: "right", fontSize: 12, color: TX, fontFamily: "monospace" }} />
+  if (!authed) return (
+    <LoginScreen onLogin={() => { setAuthed(true); loadAllData(); }} />
   );
 
   // ─── SETUP ──────────────────────────────────────────────────────────────────
   if (phase === P.SETUP) return (
-    <Shell maxW="720px">
+    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="720px">
       <PageHead title="New Session" sub="Configure variables, then fire and analyze" />
 
-      <CardSection title="Configuration" style={{ marginBottom: 16 }}>
+      <CardSection title="Configuration" className="mb-4">
         <div className="grid grid-cols-2 gap-4">
           {vars.map(vr => (
             <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
           ))}
           <div className="flex flex-col">
-            <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Shot Count</label>
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shot Count</label>
             <input type="number" min="1" value={cfg.shotCount} onChange={e => up("shotCount", e.target.value)} className={inp} />
           </div>
         </div>
+
+        {/* ── Variable management ── */}
+        <div className="mt-5 pt-4 border-t border-border">
+          {vars.filter(v => !v.core).length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {vars.filter(v => !v.core).map(v => (
+                <div key={v.key} className="inline-flex items-center gap-1.5 bg-secondary border border-border rounded-lg pl-3 pr-2 py-1.5 text-xs">
+                  <span className="text-foreground font-medium">{v.label}</span>
+                  <button onClick={() => removeVar(v.key)}
+                    className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer bg-transparent border-none leading-none text-base"
+                    aria-label={`Remove ${v.label}`}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {adding
+            ? <div className="flex gap-2 items-center">
+                <input value={newVarName} onChange={e => setNewVarName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addVar(); if (e.key === "Escape") { setAdding(false); setNewVarName(""); } }}
+                  placeholder="Variable name…" className={`${inp} max-w-[220px]`} autoFocus />
+                <Btn onClick={addVar} disabled={!newVarName.trim()}>Add</Btn>
+                <button onClick={() => { setAdding(false); setNewVarName(""); }}
+                  className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
+              </div>
+            : <button onClick={() => setAdding(true)}
+                className="text-primary text-xs font-semibold cursor-pointer bg-transparent border-none p-0 hover:text-primary/80 transition-colors">
+                + Add Variable
+              </button>
+          }
+        </div>
       </CardSection>
 
-      <CardSection title="Session Details" style={{ marginBottom: 16 }}>
+      <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col">
-            <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Session Name</label>
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Session Name</label>
             <input value={cfg.sessionName} onChange={e => up("sessionName", e.target.value)} placeholder="Auto-generated if blank" className={inp} />
           </div>
           <div className="flex flex-col">
-            <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Date</label>
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Date</label>
             <input type="date" value={cfg.date} onChange={e => up("date", e.target.value)} className={inp} />
           </div>
         </div>
         <div className="mt-4 flex flex-col">
-          <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Notes</label>
+          <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</label>
           <input value={cfg.notes} onChange={e => up("notes", e.target.value)} placeholder="Optional" className={inp} />
         </div>
       </CardSection>
 
       {cfg.rifleRate && (
-        <p style={{ color: TX2, fontSize: 12, marginBottom: 24, padding: "0 2px" }}>
-          Serial range: <span style={{ color: G, fontFamily: "monospace" }}>{makeSerial(cfg, 1, existingCount)}</span>
+        <p className="text-xs text-muted-foreground mb-6 px-0.5">
+          Serial range: <span className="text-primary font-mono">{makeSerial(cfg, 1, existingCount)}</span>
           {" → "}
-          <span style={{ color: G, fontFamily: "monospace" }}>{makeSerial(cfg, total || 1, existingCount)}</span>
+          <span className="text-primary font-mono">{makeSerial(cfg, total || 1, existingCount)}</span>
         </p>
       )}
 
@@ -687,7 +1168,7 @@ export default function App() {
         Begin Firing Session
       </Btn>
 
-      <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${BD}`, display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="mt-6 pt-5 border-t border-border flex gap-2 flex-wrap">
         <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
         <Btn v="secondary" onClick={() => fileRef.current?.click()}>Import JSON</Btn>
         {log.length > 0 && (<>
@@ -695,74 +1176,43 @@ export default function App() {
           <Btn v="secondary" onClick={() => exportJson(log)}>Export JSON</Btn>
         </>)}
       </div>
-    </Shell>
-  );
-
-  // ─── VARS ───────────────────────────────────────────────────────────────────
-  if (phase === P.VARS) return (
-    <Shell maxW="640px">
-      <PageHead title="Variables" sub="Manage session configuration variables" />
-      <CardSection title="Current Variables" style={{ marginBottom: 16 }}>
-        <div className="space-y-2">
-          {vars.map(v => (
-            <div key={v.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: SURF2, border: `1px solid ${BD}`, borderRadius: 8, padding: "10px 14px" }}>
-              <div>
-                <span style={{ color: TX, fontSize: 14, fontWeight: 500 }}>{v.label}</span>
-                {v.core && <span style={{ color: TX2, fontSize: 11, marginLeft: 8 }}>default</span>}
-              </div>
-              {!v.core && (
-                <button onClick={() => removeVar(v.key)} style={{ color: "#f87171", fontSize: 12, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardSection>
-      <CardSection title="Add Variable">
-        <div className="flex gap-3 items-end">
-          <div className="flex-1 flex flex-col">
-            <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Name</label>
-            <input value={newVarName} onChange={e => setNewVarName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addVar(); }} placeholder="e.g. Barrel Length" className={inp} />
-          </div>
-          <Btn onClick={addVar} disabled={!newVarName.trim()}>Add</Btn>
-        </div>
-      </CardSection>
-    </Shell>
+    </AppShell>
   );
 
   // ─── FIRE ───────────────────────────────────────────────────────────────────
   if (phase === P.FIRE) return (
-    <Shell maxW="1040px">
+    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1040px">
       {/* Session header row */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 24 }}>
+      <div className="flex items-start justify-between mb-7 gap-6">
         <div>
-          <h1 style={{ color: TX, fontSize: 18, fontWeight: 700, margin: "0 0 4px", letterSpacing: "-0.01em" }}>
+          <h1 className="text-lg font-bold tracking-tight text-foreground mb-1">
             {cfg.sessionName || [cfg.rifleRate, cfg.sleeveType].filter(Boolean).join(" · ")}
           </h1>
-          <p style={{ color: TX2, fontSize: 12, margin: 0 }}>
+          <p className="text-xs text-muted-foreground m-0">
             {[cfg.tailType, cfg.combustionChamber, cfg.load22].filter(Boolean).join(" · ")}
           </p>
         </div>
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-0.02em" }}>
-            <span style={{ color: G }}>{shots.length}</span>
-            <span style={{ color: TX2, fontSize: 18, fontWeight: 400 }}> / {total}</span>
+        <div className="text-right shrink-0">
+          <div className="text-[26px] font-bold leading-none tracking-tight">
+            <span className="text-primary">{shots.length}</span>
+            <span className="text-lg font-normal text-muted-foreground"> / {total}</span>
           </div>
-          <div style={{ color: TX2, fontSize: 11, marginTop: 5, fontFamily: "monospace" }}>
+          <div className="text-muted-foreground text-[11px] mt-1.5 font-mono">
             Next: {makeSerial(cfg, shots.length + 1, existingCount)}
           </div>
         </div>
       </div>
 
       {/* Shot entry */}
-      <div style={{ ...card, padding: 24, borderColor: `${G}22`, marginBottom: 20 }} onKeyDown={handleKey}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <span style={{ color: TX, fontSize: 14, fontWeight: 600 }}>Shot #{shots.length + 1}</span>
-          <span style={{ color: TX2, fontSize: 12 }}>— press Enter to record</span>
+      <div className="bg-card border border-primary/[0.13] rounded-xl p-6 mb-5" onKeyDown={handleKey}>
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="text-sm font-semibold text-foreground">Shot #{shots.length + 1}</span>
+          <span className="text-xs text-muted-foreground">— press Enter to record</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[["FPS *", "fps", "188"], ["X (in) *", "x", "−2"], ["Y (in) *", "y", "−8"], ["Weight (g)", "weight", "117.5"]].map(([lb, k, ph], i) => (
             <div key={k} className="flex flex-col">
-              <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>{lb}</label>
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
               <input ref={i === 0 ? fpsRef : null} type="number" step={k === "weight" ? "0.01" : "0.5"} value={cur[k]} onChange={e => setCur(p => ({ ...p, [k]: e.target.value }))} placeholder={ph} className={inp} autoFocus={i === 0} />
             </div>
           ))}
@@ -779,59 +1229,63 @@ export default function App() {
         <CardSection title="Live Dispersion">
           {validShots.length
             ? <DispersionChart shots={validShots} stats={stats} size={350} />
-            : <Empty>Waiting for shots…</Empty>}
+            : <Empty icon={<Crosshair size={18} />}>Record a shot to see the dispersion chart</Empty>}
         </CardSection>
         <CardSection title="Running Stats">
           {validShots.length >= 2
             ? <div className="grid grid-cols-2 gap-2">
-                {[["CEP", stats.cep.toFixed(2), 1], ["R90", stats.r90.toFixed(2)], ["SD X", stats.sdX.toFixed(2)], ["SD Y", stats.sdY.toFixed(2)], ["Mean FPS", stats.meanV.toFixed(1), 1], ["SD FPS", stats.sdV.toFixed(1)], ["ES FPS", stats.esV.toFixed(1)], ["MPI", `${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`]].map(([k, v, g]) => <SB key={k} label={k} value={v} gold={g} />)}
+                {[["CEP", stats.cep.toFixed(2), 0, OC.cep], ["R90", stats.r90.toFixed(2), 0, OC.r90], ["SD X", stats.sdX.toFixed(2)], ["SD Y", stats.sdY.toFixed(2)], ["Mean FPS", stats.meanV.toFixed(1), 1], ["SD FPS", stats.sdV.toFixed(1)], ["ES FPS", stats.esV.toFixed(1)], ["MPI", `${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`, 0, OC.mpi]].map(([k, v, g, ac]) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} />)}
               </div>
-            : <Empty>Need 2+ shots</Empty>}
+            : <Empty icon={<BarChart2 size={18} />}>Need 2 or more shots for statistics</Empty>}
         </CardSection>
 
         {/* Shot log */}
-        <div style={{ ...card, padding: 24 }} className="lg:col-span-2">
+        <div className="bg-card border border-border rounded-xl p-6 lg:col-span-2">
           <SecLabel>Shot Log</SecLabel>
           {shots.length
-            ? <div className="overflow-auto max-h-52">
-                <table className="w-full" style={{ fontSize: 12, borderCollapse: "collapse" }}>
+            ? <div className="overflow-auto max-h-52 mt-3">
+                <table className="w-full text-xs border-collapse">
                   <thead>
-                    <tr style={{ borderBottom: `1px solid ${BD}` }}>
+                    <tr className="border-b border-border">
                       {["#","Serial","FPS","X","Y","Rad","Time",""].map(h => (
-                        <th key={h} style={{ color: TX2, fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.06em", padding: "6px 8px", textAlign: ["FPS","X","Y","Rad"].includes(h) ? "right" : "left" }}>{h}</th>
+                        <th key={h} className={cn(
+                          "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5",
+                          ["FPS","X","Y","Rad"].includes(h) ? "text-right" : "text-left"
+                        )}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {shots.map((s, i) => (
-                      <tr key={i} style={{ borderBottom: `1px solid ${BD}` }}>
+                      <tr key={i} className="border-b border-border">
                         {editIdx === i ? (
                           <>
-                            <td style={{ color: TX2, padding: "6px 8px" }}>{s.shotNum}</td>
-                            <td style={{ color: TX2, padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{s.serial}</td>
+                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
                             {["fps","x","y"].map(k => (
-                              <td key={k} style={{ padding: "4px 6px" }}>
+                              <td key={k} className="px-2 py-1.5">
                                 <TblInput value={editVal[k]} onChange={e => setEditVal(p => ({ ...p, [k]: e.target.value }))} />
                               </td>
                             ))}
-                            <td /><td />
-                            <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                              <button onClick={saveEdit} style={{ color: G, fontSize: 12, fontWeight: 600, background: "none", border: "none", cursor: "pointer", marginRight: 8 }}>Save</button>
-                              <button onClick={() => setEditIdx(null)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>✕</button>
+                            <td className="px-2 py-1.5" />
+                            <td className="px-2 py-1.5" />
+                            <td className="px-2 py-1 text-right whitespace-nowrap">
+                              <button onClick={saveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
+                              <button onClick={() => setEditIdx(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
                             </td>
                           </>
                         ) : (
                           <>
-                            <td style={{ color: TX2, padding: "6px 8px" }}>{s.shotNum}</td>
-                            <td style={{ color: TX2, padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{s.serial}</td>
-                            <td style={{ color: TX, padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{s.fps}</td>
-                            <td style={{ color: TX, padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{s.x}</td>
-                            <td style={{ color: TX, padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{s.y}</td>
-                            <td style={{ color: TX2, padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{rad(s.x, s.y).toFixed(1)}</td>
-                            <td style={{ color: TX2, padding: "6px 8px" }}>{s.timestamp}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                              <button onClick={() => startEdit(i)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", marginRight: 8 }}>Edit</button>
-                              <button onClick={() => delShot(i)} style={{ color: "#f87171", fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>Del</button>
+                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.fps}</td>
+                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.x}</td>
+                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.y}</td>
+                            <td className="text-muted-foreground px-2 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
+                            <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                              <button onClick={() => startEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
+                              <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
                             </td>
                           </>
                         )}
@@ -843,7 +1297,7 @@ export default function App() {
             : <Empty>No shots recorded yet</Empty>}
         </div>
       </div>
-    </Shell>
+    </AppShell>
   );
 
   // ─── RESULTS ─────────────────────────────────────────────────────────────────
@@ -853,67 +1307,28 @@ export default function App() {
     const st = s.stats;
     const cfgLine = vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ");
     return (
-      <Shell maxW="1100px">
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
         {/* Toolbar */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 10 }}>
-          <div className="flex gap-2 flex-wrap">
-            <Btn v={showPanel ? "primary" : "secondary"} onClick={() => setShowPanel(p => !p)}>
-              {showPanel ? "Close" : "Customize"}
-            </Btn>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Btn v="secondary" onClick={() => openEditSession(s.id)}>Edit</Btn>
-            <Btn v="secondary" onClick={() => continueSession(s.id)}>+ Shots</Btn>
-            {log.length >= 2 && (
-              <Btn v="secondary" onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: log.find(x => x.id !== s.id)?.id, color: PALETTE[1] }]); setPhase(P.CMP); }}>Compare</Btn>
-            )}
-            <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
-          </div>
+        <div className="flex justify-end items-center mb-6 flex-wrap gap-2">
+          <Btn v="secondary" onClick={() => openEditSession(s.id)}>Edit</Btn>
+          <Btn v="secondary" onClick={() => continueSession(s.id)}>+ Shots</Btn>
+          {log.length >= 2 && (
+            <Btn v="secondary" onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: log.find(x => x.id !== s.id)?.id, color: PALETTE[1] }]); setPhase(P.CMP); }}>Compare</Btn>
+          )}
+          <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
         </div>
 
-        {/* Customize panel */}
-        {showPanel && (
-          <div style={{ ...card, padding: 20, borderColor: `${G}22`, marginBottom: 20 }}>
-            <div className="flex flex-wrap gap-6">
-              <div>
-                <SecLabel>Widgets</SecLabel>
-                <div className="flex flex-wrap gap-2">
-                  {Object.keys(WIDGETS).map(k => (
-                    <div key={k} className="flex items-center gap-1">
-                      <Toggle label={WIDGETS[k].label} on={layout.includes(k)} onToggle={() => toggleWidget(k)} />
-                      {layout.includes(k) && (
-                        <>
-                          <button onClick={() => moveWidget(k, -1)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>↑</button>
-                          <button onClick={() => moveWidget(k, 1)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>↓</button>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <SecLabel>Dispersion Overlays</SecLabel>
-                <div className="flex flex-wrap gap-2">
-                  {[["showCep","CEP"],["showR90","R90"],["showEllipse","Ellipse"],["showMpi","MPI"],["showGrid","Grid"]].map(([k, l]) => (
-                    <Toggle key={k} label={l} on={dispOpts[k]} onToggle={() => toggleDisp(k)} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Results card */}
-        <div style={{ ...card, overflow: "hidden" }}>
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
           {/* Session header */}
-          <div style={{ background: G, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="bg-primary px-6 py-[18px] flex items-center justify-between">
             <div>
-              <h1 style={{ color: "#000", fontSize: 18, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-0.01em" }}>{s.config.sessionName || "Session"}</h1>
-              <p style={{ color: "rgba(0,0,0,0.5)", fontSize: 12, margin: 0, fontWeight: 500 }}>{cfgLine}</p>
+              <h1 className="text-lg font-bold tracking-tight text-black mb-0.5">{s.config.sessionName || "Session"}</h1>
+              <p className="text-xs font-medium text-black/50 m-0">{cfgLine}</p>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: "rgba(0,0,0,0.5)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.config.date}</div>
-              <div style={{ color: "#000", fontSize: 15, fontWeight: 700, marginTop: 2 }}>{vs.length} shots</div>
+            <div className="text-right">
+              <div className="text-black/50 text-[11px] font-semibold uppercase tracking-wide">{s.config.date}</div>
+              <div className="text-black text-[15px] font-bold mt-0.5">{vs.length} shots</div>
             </div>
           </div>
 
@@ -921,24 +1336,41 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {layout.map((key, idx) => {
               const wg = WIDGETS[key]; if (!wg) return null;
-              const fullWidth = key === "calculations" || key === "shotTable";
+              const fullWidth = key === "shotTable";
               return (
-                <div key={key} className={`p-5 ${fullWidth ? "lg:col-span-2" : ""}`}
-                  style={{ borderBottom: `1px solid ${BD}`, borderRight: (!fullWidth && idx % 2 === 0) ? `1px solid ${BD}` : "" }}>
-                  <SecLabel>{wg.label}</SecLabel>
-                  {wg.render(s, vs, st, dispOpts)}
+                <div key={key} className={cn(
+                  "p-5 border-b border-border",
+                  fullWidth ? "lg:col-span-2" : null,
+                  (!fullWidth && idx % 2 === 0) ? "border-r border-border" : null
+                )}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold uppercase tracking-wider text-foreground">{wg.label}</span>
+                    <button onClick={() => toggleWidget(key)} title="Remove widget"
+                      className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                      <X size={13} />
+                    </button>
+                  </div>
+                  {wg.render(s, vs, st, dispOpts, toggleDisp, setDispOpt)}
                 </div>
               );
             })}
+            {Object.keys(WIDGETS).some(k => !layout.includes(k)) && (
+              <div className="p-5 border-b border-border lg:col-span-2 flex justify-center">
+                <WidgetAdder
+                  available={Object.keys(WIDGETS).filter(k => !layout.includes(k))}
+                  labels={Object.fromEntries(Object.keys(WIDGETS).map(k => [k, WIDGETS[k].label]))}
+                  onAdd={toggleWidget} />
+              </div>
+            )}
           </div>
 
           {/* Footer */}
-          <div style={{ background: SURF2, borderTop: `1px solid ${BD}`, padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ color: TX2, fontSize: 11 }}>SP1-03 Projectile Test Program</span>
-            <span style={{ color: TX2, fontSize: 11, fontFamily: "monospace" }}>{s.shots[0]?.serial} → {s.shots[s.shots.length - 1]?.serial}</span>
+          <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between items-center">
+            <span className="text-muted-foreground text-[11px]">SP1-03 Projectile Test Program</span>
+            <span className="text-muted-foreground text-[11px] font-mono">{s.shots[0]?.serial} → {s.shots[s.shots.length - 1]?.serial}</span>
           </div>
         </div>
-      </Shell>
+      </AppShell>
     );
   }
 
@@ -946,23 +1378,23 @@ export default function App() {
   if (phase === P.EDIT) {
     const esValid = esShots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y));
     return (
-      <Shell maxW="960px">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-          <PageHead title="Edit Session" />
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="960px">
+        <div className="flex items-center justify-between mb-7">
+          <h1 className="text-[22px] font-bold tracking-tight text-foreground">Edit Session</h1>
           <div className="flex gap-2">
             <Btn onClick={saveEditSession}>Save Changes</Btn>
             <Btn v="secondary" onClick={() => setPhase(P.HISTORY)}>Cancel</Btn>
           </div>
         </div>
 
-        <CardSection title="Configuration" style={{ marginBottom: 16 }}>
+        <CardSection title="Configuration" className="mb-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {vars.map(vr => (
               <SmartSelect key={vr.key} label={vr.label} value={esCfg[vr.key] || ""} onChange={v => setEsCfg(p => ({ ...p, [vr.key]: v }))} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
             ))}
             {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"]].map(([lb,k,t]) => (
               <div key={k} className="flex flex-col">
-                <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>{lb}</label>
+                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
                 <input type={t} value={esCfg[k] || ""} onChange={e => setEsCfg(p => ({ ...p, [k]: e.target.value }))} className={inp} />
               </div>
             ))}
@@ -973,55 +1405,55 @@ export default function App() {
           <CardSection title="Preview">
             {esValid.length >= 2
               ? <DispersionChart shots={esValid} stats={esStats} size={320} />
-              : <Empty>Need 2+ shots</Empty>}
+              : <Empty icon={<Crosshair size={18} />}>Need 2 or more valid shots for preview</Empty>}
           </CardSection>
           <CardSection title={`Stats (${esValid.length} shots)`}>
             {esValid.length >= 2
               ? <div className="grid grid-cols-2 gap-2">
-                  {[["CEP", esStats.cep.toFixed(2), 1],["R90",esStats.r90.toFixed(2)],["SD X",esStats.sdX.toFixed(2)],["SD Y",esStats.sdY.toFixed(2)],["Mean FPS",esStats.meanV.toFixed(1),1],["SD FPS",esStats.sdV.toFixed(1)]].map(([k,v,g]) => <SB key={k} label={k} value={v} gold={g} />)}
+                  {[["CEP", esStats.cep.toFixed(2), 0, OC.cep],["R90",esStats.r90.toFixed(2), 0, OC.r90],["SD X",esStats.sdX.toFixed(2)],["SD Y",esStats.sdY.toFixed(2)],["Mean FPS",esStats.meanV.toFixed(1),1],["SD FPS",esStats.sdV.toFixed(1)]].map(([k,v,g,ac]) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} />)}
                 </div>
-              : <Empty>Need 2+ shots</Empty>}
+              : <Empty icon={<BarChart2 size={18} />}>Need 2 or more valid shots</Empty>}
           </CardSection>
         </div>
 
-        <CardSection title={`Shots (${esShots.length})`} style={{ marginBottom: 16 }}>
+        <CardSection title={`Shots (${esShots.length})`} className="mb-4">
           <div className="overflow-auto max-h-64">
-            <table className="w-full" style={{ fontSize: 12, borderCollapse: "collapse" }}>
+            <table className="w-full text-xs border-collapse">
               <thead>
-                <tr style={{ borderBottom: `1px solid ${BD}` }}>
+                <tr className="border-b border-border">
                   {["#","Serial","FPS","X","Y","Wt",""].map(h => (
-                    <th key={h} style={{ color: TX2, fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.06em", padding: "6px 8px", textAlign: "left" }}>{h}</th>
+                    <th key={h} className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {esShots.map((ss, i) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${BD}` }}>
+                  <tr key={i} className="border-b border-border">
                     {esShotEdit === i ? (
                       <>
-                        <td style={{ color: TX2, padding: "6px 8px" }}>{ss.shotNum}</td>
-                        <td style={{ color: TX2, padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{ss.serial}</td>
+                        <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
+                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
                         {["fps","x","y","weight"].map(k => (
-                          <td key={k} style={{ padding: "4px 6px" }}>
+                          <td key={k} className="px-1.5 py-1">
                             <TblInput value={esShotEditVal[k]} onChange={e => setEsShotEditVal(p => ({ ...p, [k]: e.target.value }))} />
                           </td>
                         ))}
-                        <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                          <button onClick={esSaveEdit} style={{ color: G, fontSize: 12, fontWeight: 600, background: "none", border: "none", cursor: "pointer", marginRight: 8 }}>Save</button>
-                          <button onClick={() => setEsShotEdit(null)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>✕</button>
+                        <td className="px-2 py-1 text-right whitespace-nowrap">
+                          <button onClick={esSaveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
+                          <button onClick={() => setEsShotEdit(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
                         </td>
                       </>
                     ) : (
                       <>
-                        <td style={{ color: TX2, padding: "6px 8px" }}>{ss.shotNum}</td>
-                        <td style={{ color: TX2, padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{ss.serial}</td>
-                        <td style={{ color: TX, padding: "6px 8px", fontFamily: "monospace" }}>{ss.fps}</td>
-                        <td style={{ color: TX, padding: "6px 8px", fontFamily: "monospace" }}>{ss.x}</td>
-                        <td style={{ color: TX, padding: "6px 8px", fontFamily: "monospace" }}>{ss.y}</td>
-                        <td style={{ color: TX2, padding: "6px 8px", fontFamily: "monospace" }}>{ss.weight || "—"}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                          <button onClick={() => esStartEdit(i)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", marginRight: 8 }}>Edit</button>
-                          <button onClick={() => esDelShot(i)} style={{ color: "#f87171", fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>Del</button>
+                        <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
+                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
+                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.fps}</td>
+                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.x}</td>
+                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.y}</td>
+                        <td className="text-muted-foreground px-2 py-1.5 font-mono">{ss.weight || "—"}</td>
+                        <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                          <button onClick={() => esStartEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
+                          <button onClick={() => esDelShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
                         </td>
                       </>
                     )}
@@ -1032,146 +1464,272 @@ export default function App() {
           </div>
         </CardSection>
 
-        <CardSection title="Add Shot" style={{ borderColor: `${G}22` }}>
+        <CardSection title="Add Shot" className="border-primary/[0.13]">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             {[["FPS","fps"],["X (in)","x"],["Y (in)","y"],["Weight","weight"]].map(([lb, k]) => (
               <div key={k} className="flex flex-col">
-                <label style={{ color: TX2, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>{lb}</label>
+                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
                 <input type="number" step={k === "weight" ? "0.01" : "0.5"} value={esNewShot[k]} onChange={e => setEsNewShot(p => ({ ...p, [k]: e.target.value }))} className={inp} />
               </div>
             ))}
           </div>
           <Btn onClick={esAddShot} disabled={!esNewShot.fps || esNewShot.x === "" || esNewShot.y === ""}>Add Shot</Btn>
         </CardSection>
-      </Shell>
+      </AppShell>
     );
   }
 
   // ─── COMPARE ─────────────────────────────────────────────────────────────────
   if (phase === P.CMP) {
     const resolved = cmpSlots.map(sl => {
-      const s = log.find(x => x.id === sl.id); if (!s) return null;
+      const s = log.find(x => x.id === sl.id);
+      if (!s) return null;
       const vs = s.shots.filter(sh => !isNaN(sh.fps) && !isNaN(sh.x) && !isNaN(sh.y));
       return { ...sl, session: s, shots: vs, stats: s.stats };
     }).filter(Boolean);
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" } };
+    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" } };
 
     return (
-      <Shell maxW="1100px">
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
         {/* Toolbar */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 10 }}>
-          <Btn v={cmpShowPanel ? "primary" : "secondary"} onClick={() => setCmpShowPanel(p => !p)}>
-            {cmpShowPanel ? "Close" : "Customize"}
-          </Btn>
-          <Btn onClick={newSession}>+ New Session</Btn>
-        </div>
-
-        {/* Customize panel */}
-        {cmpShowPanel && (
-          <div style={{ ...card, padding: 20, borderColor: `${G}22`, marginBottom: 20 }}>
-            <div style={{ marginBottom: 18 }}>
-              <SecLabel>Comparison Title</SecLabel>
-              <input value={cmpTitle} onChange={e => setCmpTitle(e.target.value)} placeholder="e.g. Short vs Long Comparison" className={inp} style={{ maxWidth: 420 }} />
-            </div>
-            <div className="flex flex-wrap gap-6">
-              <div>
-                <SecLabel>Widgets</SecLabel>
-                <div className="flex flex-wrap gap-2">
-                  {Object.keys(CMP_WIDGET_DEFS).map(k => (
-                    <div key={k} className="flex items-center gap-1">
-                      <Toggle label={CMP_WIDGET_DEFS[k].label} on={cmpWidgets.includes(k)} onToggle={() => toggleCmpWidget(k)} />
-                      {cmpWidgets.includes(k) && (
-                        <>
-                          <button onClick={() => moveCmpWidget(k, -1)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>↑</button>
-                          <button onClick={() => moveCmpWidget(k, 1)} style={{ color: TX2, fontSize: 12, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>↓</button>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {savedComparisons.length > 0 && savedComparisons.map(c => (
+              <div key={c.id} className="inline-flex items-center rounded-lg border border-border bg-card overflow-hidden">
+                <button onClick={() => loadComparison(c)}
+                  className="text-xs text-foreground px-3 py-1.5 hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                  {c.name}
+                </button>
+                <button onClick={() => deleteComparison(c.id)}
+                  className="px-2 py-1.5 text-muted-foreground/50 hover:text-destructive transition-colors cursor-pointer bg-transparent border-none border-l border-border">
+                  <X size={11} />
+                </button>
               </div>
-              <div>
-                <SecLabel>Overlays</SecLabel>
-                <div className="flex flex-wrap gap-2">
-                  {[["showCep","CEP"],["showR90","R90"],["showEllipse","Ellipse"],["showMpi","MPI"]].map(([k, l]) => (
-                    <Toggle key={k} label={l} on={cmpDispOpts[k]} onToggle={() => setCmpDispOpts(p => ({ ...p, [k]: !p[k] }))} />
-                  ))}
-                </div>
-              </div>
-              <div>
-                <SecLabel>Metrics</SecLabel>
-                <div className="flex flex-wrap gap-2">
-                  {ALL_METRICS.map(([label]) => (
-                    <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
-                  ))}
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpWidgets)}>
+              Save Comparison
+            </Btn>
+            <Btn onClick={newSession}>+ New Session</Btn>
+          </div>
+        </div>
+        {savedComparisons.length === 0 && <div className="mb-4" />}
 
         {/* Main compare card */}
-        <div style={{ ...card, overflow: "hidden" }}>
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
           {/* Header */}
-          <div style={{ background: G, padding: "16px 24px", textAlign: "center" }}>
-            <h1 style={{ color: "#000", fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-              {cmpTitle || "Session Comparison"}
-            </h1>
-            {cmpTitle && <p style={{ color: "rgba(0,0,0,0.45)", fontSize: 11, margin: "3px 0 0", fontWeight: 500 }}>{resolved.length} sessions</p>}
+          <div className="bg-primary px-6 py-4 text-center">
+            <input
+              value={cmpTitle}
+              onChange={e => setCmpTitle(e.target.value)}
+              placeholder="Session Comparison"
+              className="bg-transparent text-black text-base font-bold tracking-[0.05em] uppercase text-center outline-none placeholder:text-black/35 border-none w-full cursor-text" />
+            <p className="text-black/40 text-[10px] mt-0.5 font-medium m-0">
+              {resolved.length > 0 ? `${resolved.length} session${resolved.length !== 1 ? "s" : ""}  ·  ` : ""}click to edit title
+            </p>
           </div>
 
-          {/* Session slots */}
-          <div style={{ background: SURF2, borderBottom: `1px solid ${BD}`, padding: "16px 24px" }}>
-            <div className="space-y-3">
-              {cmpSlots.map((sl, idx) => (
-                <div key={idx} className="flex items-center gap-3 flex-wrap">
-                  <div style={{ width: 12, height: 12, borderRadius: 6, background: sl.color, flexShrink: 0 }} />
-                  <select value={sl.id || ""} onChange={e => { const nid = parseInt(e.target.value) || null; setCmpSlots(p => p.map((s, i) => i === idx ? { ...s, id: nid } : s)); }} className={inp} style={{ maxWidth: 320 }}>
-                    <option value="">— select session —</option>
-                    {log.map(ss => <option key={ss.id} value={ss.id}>{ss.config.sessionName || "Session"} ({ss.config.date})</option>)}
-                  </select>
-                  <ColorPicker color={sl.color} onChange={c => setCmpSlots(p => p.map((s, i) => i === idx ? { ...s, color: c } : s))} />
-                  {cmpSlots.length > 2 && (
-                    <button onClick={() => setCmpSlots(p => p.filter((_, i) => i !== idx))} style={{ color: "#f87171", fontSize: 12, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
-                  )}
-                </div>
-              ))}
+          {/* Session picker */}
+          <div className="bg-secondary border-b border-border">
+            <button
+              onClick={() => setCmpPickerOpen(o => !o)}
+              className="w-full flex items-center justify-between px-6 py-3 cursor-pointer bg-transparent border-none hover:bg-accent/20 transition-colors">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Sessions{cmpSlots.length > 0 ? ` — ${cmpSlots.length} selected` : ""}
+              </span>
+              <svg className={cn("size-3.5 text-muted-foreground transition-transform duration-200", cmpPickerOpen ? "" : "-rotate-90")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          <div className={cn("px-6 overflow-hidden transition-all duration-300", cmpPickerOpen ? "pb-5 max-h-[600px]" : "max-h-0 pb-0 pointer-events-none")}>
+
+            {/* Row 1: Comparing by */}
+            <div className="flex items-center gap-2.5 mb-4 flex-wrap">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Comparing</span>
+              <select
+                value={cmpBy}
+                onChange={e => { setCmpBy(e.target.value); setCmpFilters({}); }}
+                className={`${inp} w-auto text-xs`}>
+                <option value="">— all sessions —</option>
+                {vars.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+              </select>
+              {cmpBy && (
+                <button onClick={() => { setCmpBy(""); setCmpFilters({}); }}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
+                  Clear
+                </button>
+              )}
+              <span className="text-[11px] text-muted-foreground ml-auto shrink-0">
+                {(() => { const n = log.filter(s => Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v)).length; return `${n} of ${log.length} sessions`; })()}
+              </span>
             </div>
-            <button onClick={() => setCmpSlots(p => [...p, { id: null, color: PALETTE[p.length % PALETTE.length] }])}
-              style={{ color: G, fontSize: 12, fontWeight: 600, background: "none", border: "none", cursor: "pointer", marginTop: 12, padding: 0 }}>+ Add Session</button>
-          </div>
+
+            {/* Row 2: Filter chips for other variables */}
+            {cmpBy && (() => {
+              const filterVars = vars.filter(v => v.key !== cmpBy);
+              const hasFilters = filterVars.some(v => {
+                const vals = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
+                return vals.length >= 2;
+              });
+              if (!hasFilters) return null;
+              return (
+                <div className="flex flex-wrap gap-x-5 gap-y-2.5 mb-4 pb-4 border-b border-border">
+                  {filterVars.map(v => {
+                    const vals = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
+                    if (vals.length < 2) return null;
+                    return (
+                      <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{v.label}:</span>
+                        {vals.map(val => (
+                          <button key={val}
+                            onClick={() => setCmpFilters(p => { const n = { ...p }; if (n[v.key] === val) delete n[v.key]; else n[v.key] = val; return n; })}
+                            className={cn(
+                              "text-[11px] px-2 py-0.5 rounded border cursor-pointer transition-colors duration-150",
+                              cmpFilters[v.key] === val
+                                ? "bg-primary/15 text-primary border-primary/30 font-semibold"
+                                : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-border/60"
+                            )}>
+                            {val}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Session chips */}
+            {(() => {
+              const filtered = log.filter(s =>
+                Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v)
+              );
+              if (!filtered.length) return (
+                <p className="text-sm text-muted-foreground py-4">No sessions match these filters.</p>
+              );
+              return (
+                <div className="flex flex-wrap gap-1.5">
+                  {filtered.map(s => {
+                    const slot = cmpSlots.find(sl => sl.id === s.id);
+                    const isSelected = !!slot;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setCmpSlots(p => p.filter(sl => sl.id !== s.id));
+                          } else {
+                            setCmpSlots(p => [...p, { id: s.id, color: PALETTE[p.length % PALETTE.length] }]);
+                          }
+                        }}
+                        onMouseEnter={ev => setCmpHoverTip({ x: ev.clientX, y: ev.clientY, session: s })}
+                        onMouseMove={ev => setCmpHoverTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t)}
+                        onMouseLeave={() => setCmpHoverTip(null)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all duration-150 cursor-pointer",
+                          isSelected
+                            ? "border-primary/30 bg-primary/10 text-foreground"
+                            : "border-border bg-card/60 text-muted-foreground hover:text-foreground hover:border-border/80"
+                        )}>
+                        <span
+                          className="size-2 rounded-full shrink-0 transition-colors"
+                          style={{ background: isSelected ? slot.color : "rgba(255,255,255,0.15)" }} />
+                        {s.config.sessionName || "Session"}
+                        {isSelected && <span className="text-primary font-bold leading-none ml-0.5">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Selected strip — color pickers */}
+            {cmpSlots.length > 0 && (
+              <div className="flex items-center gap-4 mt-4 pt-3.5 border-t border-border flex-wrap">
+                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider shrink-0">
+                  {cmpSlots.length} selected
+                </span>
+                {cmpSlots.map(sl => {
+                  const s = log.find(x => x.id === sl.id);
+                  if (!s) return null;
+                  return (
+                    <div key={sl.id} className="flex items-center gap-1.5">
+                      <ColorPicker color={sl.color} onChange={c => setCmpSlots(p => p.map(x => x.id === sl.id ? { ...x, color: c } : x))} />
+                      <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+                        {s.config.sessionName || "Session"}
+                      </span>
+                    </div>
+                  );
+                })}
+                <button onClick={() => setCmpSlots([])}
+                  className="text-xs text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none transition-colors ml-auto">
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>{/* end collapsible content */}
+          </div>{/* end session picker */}
 
           {resolved.length >= 2 ? (
             <>
               {cmpWidgets.map(key => {
                 if (key === "overlay") return (
-                  <div key={key} style={{ padding: "24px", borderBottom: `1px solid ${BD}` }}>
-                    <SecLabel>Dispersion Overlay — {resolved.length} sessions</SecLabel>
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Dispersion Overlay</span>
+                      <button onClick={() => toggleCmpWidget("overlay")} title="Remove widget"
+                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="flex gap-1.5 mb-3 flex-wrap">
+                      {[["showCep","CEP",OC.cep],["showR90","R90",OC.r90],["showEllipse","Ellipse",OC.ellipse],["showMpi","MPI",OC.mpi]].map(([k,l,c]) => (
+                        <Toggle key={k} label={l} on={cmpDispOpts[k]} onToggle={() => setCmpDispOpts(p => ({ ...p, [k]: !p[k] }))} color={c} />
+                      ))}
+                    </div>
                     <div className="flex justify-center">
                       <DispersionMulti sessions={resolved.map(r => ({ shots: r.shots, stats: r.stats, color: r.color }))} size={Math.min(440, 400 + resolved.length * 10)} opts={cmpDispOpts} />
                     </div>
                     <div className="flex justify-center gap-5 mt-3 flex-wrap">
                       {resolved.map((r, i) => (
                         <div key={i} className="flex items-center gap-2">
-                          <div style={{ width: 10, height: 10, borderRadius: 5, background: r.color }} />
-                          <span style={{ color: TX, fontSize: 12, fontWeight: 500 }}>{r.session.config.sessionName}</span>
-                          <span style={{ color: TX2, fontSize: 11 }}>({r.stats.n})</span>
+                          <div className="size-2.5 rounded-full" style={{ background: r.color }} />
+                          <span className="text-sm font-medium text-foreground">{r.session.config.sessionName}</span>
+                          <span className="text-[11px] text-muted-foreground">({r.stats.n})</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 );
                 if (key === "metrics" && activeMetrics.length) return (
-                  <div key={key} style={{ padding: "24px", borderBottom: `1px solid ${BD}` }}>
-                    <SecLabel>Metrics Comparison</SecLabel>
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Metrics Comparison</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setCmpMetricsOpen(o => !o)}
+                          className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
+                          {cmpMetricsOpen ? "Done" : "Edit metrics"}
+                        </button>
+                        <button onClick={() => toggleCmpWidget("metrics")} title="Remove widget"
+                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                          <X size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {cmpMetricsOpen && (
+                      <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
+                        {ALL_METRICS.map(([label]) => (
+                          <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
+                        ))}
+                      </div>
+                    )}
                     <div className="overflow-auto">
-                      <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                      <table className="w-full border-collapse">
                         <thead>
-                          <tr style={{ borderBottom: `1px solid ${BD}` }}>
-                            <th style={{ color: TX2, textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Metric</th>
+                          <tr className="border-b border-border">
+                            <th className="text-muted-foreground text-left px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide">Metric</th>
                             {resolved.map((r, i) => (
-                              <th key={i} style={{ color: r.color, textAlign: "right", padding: "8px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{r.session.config.sessionName}</th>
+                              <th key={i} className="text-right px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: r.color }}>{r.session.config.sessionName}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1181,12 +1739,14 @@ export default function App() {
                             const isLb = LOWER_BETTER.includes(label);
                             const best = isLb ? Math.min(...vals) : Math.max(...vals);
                             return (
-                              <tr key={label} style={{ borderBottom: `1px solid ${BD}` }}>
-                                <td style={{ color: TX, padding: "9px 10px", fontSize: 13 }}>{label}</td>
+                              <tr key={label} className="border-b border-border odd:bg-secondary/30">
+                                <td className="px-2.5 py-2.5 text-sm" style={{ color: ({cep:OC.cep,r90:OC.r90,mpiX:OC.mpi,mpiY:OC.mpi}[key2]) || "var(--color-foreground)" }}>
+                                  <MetricTip label={label}>{label}</MetricTip>
+                                </td>
                                 {resolved.map((r, i) => {
                                   const v = r.stats[key2];
                                   const isBest = v === best && vals.filter(x => x === best).length === 1;
-                                  return <td key={i} style={{ padding: "9px 10px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, fontSize: 13, color: isBest ? r.color : TX }}>{v.toFixed(dec)}{isBest ? " ✦" : ""}</td>;
+                                  return <td key={i} className={cn("px-2.5 py-2.5 text-right font-mono font-semibold text-sm", !isBest && "text-foreground")} style={isBest ? { color: r.color } : undefined}>{v.toFixed(dec)}{isBest ? " ✦" : ""}</td>;
                                 })}
                               </tr>
                             );
@@ -1197,80 +1757,247 @@ export default function App() {
                   </div>
                 );
                 if (key === "velCompare") return (
-                  <div key={key} style={{ padding: "24px", borderBottom: `1px solid ${BD}` }}>
-                    <SecLabel>Velocity Comparison</SecLabel>
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Velocity Comparison</span>
+                      <button onClick={() => toggleCmpWidget("velCompare")} title="Remove widget"
+                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                        <X size={13} />
+                      </button>
+                    </div>
                     <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
                       {resolved.map((r, i) => (
                         <div key={i}>
-                          <div style={{ color: r.color, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{r.session.config.sessionName}</div>
+                          <div className="text-xs font-semibold mb-2" style={{ color: r.color }}>{r.session.config.sessionName}</div>
                           <VelHist shots={r.shots} width={280} color={r.color} />
                         </div>
                       ))}
                     </div>
                   </div>
                 );
+                if (key === "shotLog") {
+                  const allShots = resolved.flatMap(r =>
+                    [...r.shots]
+                      .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
+                      .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color, mpiX: r.stats.mpiX, mpiY: r.stats.mpiY }))
+                  );
+                  const hdrs = ["Session","#","Serial","FPS","X","Y","Wt","Rad"];
+                  const rightAlign = ["FPS","X","Y","Wt","Rad"];
+                  return (
+                    <div key={key} className="p-6 border-b border-border">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Shot Log</span>
+                        <button onClick={() => toggleCmpWidget("shotLog")} title="Remove widget"
+                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <div className="overflow-auto max-h-80">
+                        <table className="w-full text-xs border-collapse">
+                          <thead className="sticky top-0 bg-card z-10">
+                            <tr className="border-b border-border">
+                              {hdrs.map(h => (
+                                <th key={h} className={cn(
+                                  "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
+                                  rightAlign.includes(h) ? "text-right" : "text-left"
+                                )}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allShots.map((s, i) => {
+                              const r = rad(s.x - (s.mpiX || 0), s.y - (s.mpiY || 0));
+                              return (
+                                <tr key={i} className="border-b transition-colors"
+                                  style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
+                                  <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>
+                                    {s.sessionName}
+                                  </td>
+                                  <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
+                                  <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
+                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.fps}</td>
+                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.x}</td>
+                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.y}</td>
+                                  <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{s.weight || "—"}</td>
+                                  <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{r.toFixed(3)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                }
                 return null;
               })}
-              <div style={{ background: SURF2, borderTop: `1px solid ${BD}`, padding: "10px 24px", display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: TX2, fontSize: 11 }}>✦ best in category</span>
-                <span style={{ color: TX2, fontSize: 11 }}>SP1-03 Test Program</span>
+              {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpWidgets.includes(k)) && (
+                <div className="p-5 border-b border-border flex justify-center">
+                  <WidgetAdder
+                    available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpWidgets.includes(k))}
+                    labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
+                    onAdd={toggleCmpWidget} />
+                </div>
+              )}
+              <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between">
+                <span className="text-muted-foreground text-[11px]">✦ best in category</span>
+                <span className="text-muted-foreground text-[11px]">SP1-03 Test Program</span>
               </div>
             </>
           ) : (
-            <Empty>Select at least 2 sessions to compare</Empty>
+            <Empty icon={<Crosshair size={18} />}>Select 2 or more sessions above to compare</Empty>
           )}
         </div>
-      </Shell>
+
+        {/* Session chip hover tooltip */}
+        {cmpHoverTip && (() => {
+          const s = cmpHoverTip.session;
+          const st = s.stats;
+          const lines = [
+            s.config.sessionName || "Session",
+            ...vars.map(v => s.config[v.key] ? `${v.label}: ${s.config[v.key]}` : null).filter(Boolean),
+            "─",
+            `Shots: ${st.n}`,
+            `CEP: ${st.cep.toFixed(3)}"`,
+            `R90: ${st.r90.toFixed(3)}"`,
+            `Mean FPS: ${st.meanV.toFixed(1)}`,
+            `SD FPS: ${st.sdV.toFixed(1)}`,
+            ...(s.config.date ? [`Date: ${s.config.date}`] : []),
+          ];
+          const style = {
+            position: "fixed", left: cmpHoverTip.x + 14, top: cmpHoverTip.y - 10,
+            pointerEvents: "none", zIndex: 200,
+            background: "#1b1b22", border: `1px solid ${G}40`,
+            borderRadius: 8, padding: "8px 12px", fontSize: 11, lineHeight: 1.75,
+            color: "#ededf2", whiteSpace: "nowrap",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          };
+          return (
+            <div style={style}>
+              {lines.map((l, i) =>
+                l === "─"
+                  ? <div key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
+                  : <div key={i} style={i === 0 ? { color: G, fontWeight: 600, marginBottom: 2 } : undefined}>{l}</div>
+              )}
+            </div>
+          );
+        })()}
+      </AppShell>
     );
   }
 
   // ─── HISTORY ─────────────────────────────────────────────────────────────────
-  if (phase === P.HISTORY) return (
-    <Shell maxW="840px">
-      <PageHead title="Session History" sub={`${log.length} session${log.length !== 1 ? "s" : ""} recorded`} />
-      {!log.length ? <Empty>No sessions yet. Start one from Setup.</Empty> : (
-        <div className="space-y-3">
-          {[...log].reverse().map(s => (
-            <div key={s.id} style={{ ...card, padding: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: TX, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{s.config.sessionName || "Session"}</div>
-                <div style={{ color: TX2, fontSize: 12, marginBottom: 3 }}>{vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}</div>
-                <div style={{ color: TX2, fontSize: 11 }}>{s.config.date} · {s.stats.n} shots</div>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 12, marginBottom: 10 }}>
-                  CEP <span style={{ color: G, fontWeight: 600, fontFamily: "monospace" }}>{s.stats.cep.toFixed(2)}</span>
-                  <span style={{ color: BD_HI }}> · </span>
-                  SD <span style={{ color: TX, fontWeight: 600, fontFamily: "monospace" }}>{s.stats.sdV.toFixed(1)}</span>
+  if (phase === P.HISTORY) {
+    const hasFilters = Object.keys(histFilters).length > 0 || histSearch.trim();
+    const histFiltered = [...log].reverse().filter(s => {
+      if (histSearch.trim() && !(s.config.sessionName || "").toLowerCase().includes(histSearch.trim().toLowerCase())) return false;
+      return Object.entries(histFilters).every(([k, v]) => s.config[k] === v);
+    });
+
+    return (
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="840px">
+        <PageHead title="Session History" sub={`${log.length} session${log.length !== 1 ? "s" : ""} recorded`} />
+        {!log.length ? (
+          <Empty
+            icon={<History size={18} />}
+            action={<Btn onClick={newSession}>Start First Session</Btn>}>
+            No sessions recorded yet. Configure your variables and start firing.
+          </Empty>
+        ) : (
+          <>
+            {/* Filter bar */}
+            <div className="mb-4 space-y-2.5">
+              <input
+                value={histSearch}
+                onChange={e => setHistSearch(e.target.value)}
+                placeholder="Search by session name…"
+                className={cn(inp, "text-sm")}
+              />
+              {vars.length > 0 && (
+                <div className="space-y-2">
+                  {vars.map(v => {
+                    const options = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
+                    if (!options.length) return null;
+                    return (
+                      <div key={v.key} className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider w-24 shrink-0 truncate">{v.label}</span>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {options.map(opt => (
+                            <button
+                              key={opt}
+                              onClick={() => setHistFilters(f => f[v.key] === opt ? (({ [v.key]: _, ...rest }) => rest)(f) : { ...f, [v.key]: opt })}
+                              className={cn(
+                                "px-2.5 py-0.5 rounded-full border text-xs font-medium transition-all duration-150 cursor-pointer",
+                                histFilters[v.key] === opt
+                                  ? "border-primary/40 bg-primary/10 text-primary"
+                                  : "border-border bg-card/60 text-muted-foreground hover:text-foreground hover:border-border/80"
+                              )}>
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex gap-3 justify-end flex-wrap">
-                  <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} style={{ color: G, fontSize: 12, fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>View</button>
-                  <button onClick={() => openEditSession(s.id)} style={{ color: TX2, fontSize: 12, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => continueSession(s.id)} style={{ color: TX2, fontSize: 12, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>+ Shots</button>
-                  <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} style={{ color: TX2, fontSize: 12, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>Compare</button>
-                  <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} style={{ color: "#f87171", fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>Delete</button>
-                </div>
-              </div>
+              )}
+              {hasFilters && (
+                <button
+                  onClick={() => { setHistFilters({}); setHistSearch(""); }}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
+                  Clear filters
+                </button>
+              )}
             </div>
-          ))}
+
+            {histFiltered.length === 0 ? (
+              <Empty icon={<History size={18} />}>No sessions match the current filters.</Empty>
+            ) : (
+              <div className="space-y-3">
+                {histFiltered.map(s => (
+                  <div key={s.id} className="bg-card border border-border rounded-xl p-5 flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[15px] text-foreground mb-1">{s.config.sessionName || "Session"}</div>
+                      <div className="text-xs text-muted-foreground mb-0.5">{vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}</div>
+                      <div className="text-[11px] text-muted-foreground">{s.config.date} · {s.stats.n} shots</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs mb-2.5">
+                        CEP <span className="text-primary font-semibold font-mono">{s.stats.cep.toFixed(2)}</span>
+                        <span className="text-muted-foreground/40 mx-1"> · </span>
+                        SD <span className="text-foreground font-semibold font-mono">{s.stats.sdV.toFixed(1)}</span>
+                      </div>
+                      <div className="flex gap-3 justify-end flex-wrap">
+                        <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer">View</button>
+                        <button onClick={() => openEditSession(s.id)} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">Edit</button>
+                        <button onClick={() => continueSession(s.id)} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">+ Shots</button>
+                        <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">Compare</button>
+                        <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        <div className="mt-6 pt-5 border-t border-border flex gap-2 flex-wrap">
+          <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+          <Btn v="secondary" onClick={() => fileRef.current?.click()}>Import JSON</Btn>
+          {log.length > 0 && (<>
+            <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
+            <Btn v="secondary" onClick={() => exportJson(log)}>Export JSON</Btn>
+          </>)}
         </div>
-      )}
-      <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${BD}`, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
-        <Btn v="secondary" onClick={() => fileRef.current?.click()}>Import JSON</Btn>
-        {log.length > 0 && (<>
-          <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
-          <Btn v="secondary" onClick={() => exportJson(log)}>Export JSON</Btn>
-        </>)}
-      </div>
-    </Shell>
-  );
+      </AppShell>
+    );
+  }
 
   return (
-    <Shell>
-      <div className="flex items-center justify-center" style={{ minHeight: "60vh" }}>
+    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)}>
+      <div className="flex items-center justify-center min-h-[60vh]">
         <Btn onClick={newSession}>Start New Session</Btn>
       </div>
-    </Shell>
+    </AppShell>
   );
 }
