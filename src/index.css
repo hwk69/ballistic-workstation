@@ -104,6 +104,46 @@ button { font-family: inherit; }
   body { @apply bg-background text-foreground font-sans; }
 }
 
+/* ─── Compare Grid Layout ────────────────────────────────────────────────── */
+
+/* Ensure resize handle appears above widget panel */
+.react-grid-item > .react-resizable-handle {
+  z-index: 10;
+  opacity: 0.5;
+  transition: opacity 150ms;
+}
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+/* Clip widget body content to cell bounds */
+.widget-panel {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.widget-body {
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
+
+/* Drag placeholder */
+.react-grid-item.react-grid-placeholder {
+  background: #FFDF00 !important;
+  opacity: 0.15 !important;
+  border-radius: 12px;
+}
+
+/* Smooth drop, no transition during active drag/resize */
+.react-grid-item {
+  transition: transform 150ms ease, width 150ms ease, height 150ms ease;
+}
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  transition: none;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+
 /* ─── Compare Export Mode ─────────────────────────────────────────────────── */
 
 /* Export header: hidden normally, shown during export */

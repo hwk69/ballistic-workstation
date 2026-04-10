@@ -33,17 +33,17 @@ const TICK_CLR = "rgba(255,255,255,0.85)";
 
 // ─── Widget layout defaults ──────────────────────────────────────────────────
 const WIDGET_DEFAULTS = {
-  overlay:         { w: 4, h: 4 },
-  metrics:         { w: 6, h: 3 },
-  velCompare:      { w: 4, h: 3 },
-  shotLog:         { w: 6, h: 4 },
-  attachments:     { w: 6, h: 3 },
-  velRanking:      { w: 3, h: 3 },
-  accuracyRanking: { w: 3, h: 3 },
+  overlay:         { w: 4, h: 6 },
+  metrics:         { w: 6, h: 4 },
+  velCompare:      { w: 4, h: 4 },
+  shotLog:         { w: 6, h: 5 },
+  attachments:     { w: 6, h: 4 },
+  velRanking:      { w: 3, h: 4 },
+  accuracyRanking: { w: 3, h: 4 },
 };
 const DEFAULT_CMP_LAYOUT = [
-  { i: 'overlay', x: 0, y: 0, w: 4, h: 4 },
-  { i: 'metrics', x: 0, y: 4, w: 6, h: 3 },
+  { i: 'overlay', x: 0, y: 0, w: 4, h: 6 },
+  { i: 'metrics', x: 0, y: 6, w: 6, h: 4 },
 ];
 
 // ─── Data constants ───────────────────────────────────────────────────────────
@@ -2095,11 +2095,15 @@ export default function App() {
                   <GridLayout
                     layout={cmpLayout}
                     cols={6}
-                    rowHeight={120}
+                    rowHeight={72}
                     width={rglWidth}
                     draggableHandle=".rgl-drag-handle"
                     resizeHandles={['se']}
                     onLayoutChange={handleLayoutChange}
+                    compactType="vertical"
+                    autoSize={true}
+                    margin={[8, 8]}
+                    containerPadding={[4, 4]}
                   >
                     {cmpLayout.map(item => {
                       const key = item.i;
@@ -2107,7 +2111,7 @@ export default function App() {
                       if (!def) return null;
                       return (
                         <div key={key}>
-                          <div className="widget-panel h-full flex flex-col bg-card border border-border rounded-xl overflow-hidden">
+                          <div className="widget-panel h-full flex flex-col bg-card border border-border rounded-xl">
                             <div className="widget-header flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40 shrink-0">
                               <div className="rgl-drag-handle flex items-center gap-1.5 cursor-grab select-none">
                                 <GripVertical size={13} className="grip-icon text-muted-foreground/50" />
@@ -2120,7 +2124,7 @@ export default function App() {
                                 <X size={13} />
                               </button>
                             </div>
-                            <div className="widget-body flex-1 overflow-auto p-4">
+                            <div className="widget-body flex-1 overflow-hidden p-4">
                               {renderWidgetContent(key)}
                             </div>
                           </div>
