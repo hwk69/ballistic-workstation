@@ -1736,6 +1736,25 @@ export default function App() {
       stats: r.stats,
     }));
 
+    const exportRef = useRef(null);
+    const exportDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const sessionNames = resolved.map(r => r.session.config.sessionName || 'Session').join(' · ');
+
+    async function handleExport() {
+      const el = exportRef.current;
+      if (!el) return;
+      el.classList.add('export-mode');
+      try {
+        const dataUrl = await toPng(el, { backgroundColor: '#f7f7fa', pixelRatio: 2 });
+        const a = document.createElement('a');
+        a.download = `compare-${Date.now()}.png`;
+        a.href = dataUrl;
+        a.click();
+      } finally {
+        el.classList.remove('export-mode');
+      }
+    }
+
     function renderWidgetContent(key) {
       if (key === 'overlay') return (
         <>
@@ -1893,13 +1912,21 @@ export default function App() {
             <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpLayout)}>
               Save Comparison
             </Btn>
+            <Btn v="secondary" onClick={handleExport} disabled={resolved.length < 2}>
+              Export Image
+            </Btn>
             <Btn onClick={newSession}>+ New Session</Btn>
           </div>
         </div>
         {savedComparisons.length === 0 && <div className="mb-4" />}
 
         {/* Main compare card */}
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div ref={exportRef} className="export-root bg-card border border-border rounded-xl overflow-hidden">
+          {/* Export header — hidden normally, shown during export */}
+          <div className="export-header px-6 py-3 border-b border-border bg-card">
+            <div className="text-sm font-bold text-foreground">{sessionNames}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Session Comparison · {exportDate}</div>
+          </div>
           {/* Header */}
           <div className="px-6 py-4 text-center" style={{ background: '#111118', borderTop: `3px solid ${G}` }}>
             <input

@@ -103,3 +103,15 @@ button { font-family: inherit; }
   * { @apply border-border outline-ring/50; }
   body { @apply bg-background text-foreground font-sans; }
 }
+
+/* ─── Compare Export Mode ─────────────────────────────────────────────────── */
+
+/* Export header: hidden normally, shown during export */
+.export-root .export-header { display: none; }
+.export-root.export-mode .export-header { display: block; }
+
+/* Hide interactive controls during export */
+.export-root.export-mode .rgl-drag-handle .grip-icon { display: none; }
+.export-root.export-mode .rgl-remove-btn { display: none; }
+.export-root.export-mode .react-resizable-handle { display: none; }
+.export-root.export-mode .widget-add-bar { display: none; }
