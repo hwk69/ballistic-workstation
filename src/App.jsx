@@ -3,8 +3,7 @@ import * as d3 from "d3";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useScroll } from "@/components/use-scroll";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
 import { GripVertical, Crosshair, BarChart2, History, X, Plus, Paperclip } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
@@ -13,10 +12,8 @@ import { LibraryPage } from './components/LibraryPage.jsx';
 import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
-import ReactGridLayout, { WidthProvider } from 'react-grid-layout';
+import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import { toPng } from 'html-to-image';
-
-const RGL = WidthProvider(ReactGridLayout);
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
@@ -33,6 +30,21 @@ const CHART_BG = "#0f0f14";
 const GRID_CLR = "rgba(255,255,255,0.10)";
 const AXIS_CLR = "rgba(255,255,255,0.40)";
 const TICK_CLR = "rgba(255,255,255,0.85)";
+
+// ─── Widget layout defaults ──────────────────────────────────────────────────
+const WIDGET_DEFAULTS = {
+  overlay:         { w: 4, h: 4 },
+  metrics:         { w: 6, h: 3 },
+  velCompare:      { w: 4, h: 3 },
+  shotLog:         { w: 6, h: 4 },
+  attachments:     { w: 6, h: 3 },
+  velRanking:      { w: 3, h: 3 },
+  accuracyRanking: { w: 3, h: 3 },
+};
+const DEFAULT_CMP_LAYOUT = [
+  { i: 'overlay', x: 0, y: 0, w: 4, h: 4 },
+  { i: 'metrics', x: 0, y: 4, w: 6, h: 3 },
+];
 
 // ─── Data constants ───────────────────────────────────────────────────────────
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
@@ -995,6 +1007,7 @@ function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, db
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const { width: rglWidth, containerRef: rglContainerRef } = useContainerWidth({ initialWidth: 1060 });
   const [phase, setPhase]   = useState(P.SETUP);
   const [log, setLog]       = useState([]);
   const [opts, setOpts]     = useState(DEF_OPTS);
@@ -1023,7 +1036,7 @@ export default function App() {
   const [cmpPickerOpen, setCmpPickerOpen] = useState(true);
   const [savedComparisons, setSavedComparisons] = useState([]);
   const [cmpMetrics, setCmpMetrics] = useState(DEF_CMP_METRICS);
-  const [cmpWidgets, setCmpWidgets] = useState(["overlay","metrics"]);
+  const [cmpLayout, setCmpLayout] = useState(DEFAULT_CMP_LAYOUT);
   const [cmpTitle, setCmpTitle] = useState("");
   const [cmpBy, setCmpBy] = useState("");
   const [cmpFilters, setCmpFilters] = useState({});
@@ -1075,7 +1088,17 @@ export default function App() {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
         if (settings.layout.cmpMetrics) setCmpMetrics(settings.layout.cmpMetrics);
-        if (settings.layout.cmpWidgets) setCmpWidgets(settings.layout.cmpWidgets);
+        if (settings.layout.cmpLayout) {
+          setCmpLayout(settings.layout.cmpLayout);
+        } else if (settings.layout.cmpWidgets) {
+          setCmpLayout(settings.layout.cmpWidgets.map((k, i) => ({
+            i: k,
+            x: 0,
+            y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
+            w: WIDGET_DEFAULTS[k]?.w ?? 6,
+            h: WIDGET_DEFAULTS[k]?.h ?? 3,
+          })));
+        }
       }
       setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
       setSavedComparisons(comparisons);
@@ -1104,9 +1127,9 @@ export default function App() {
   useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); } }, [phase]);
 
   const saveLayoutAll = useCallback(async upd => {
-    const c = { layout, dispOpts, cmpMetrics, cmpWidgets, ...upd };
+    const c = { layout, dispOpts, cmpMetrics, cmpLayout, ...upd };
     try { await db.saveSettings({ layout: c }); } catch (err) { setDbError('Settings save failed: ' + err.message); }
-  }, [layout, dispOpts, cmpMetrics, cmpWidgets]);
+  }, [layout, dispOpts, cmpMetrics, cmpLayout]);
 
   const saveComparison = useCallback(async (title, slots, filters, by, metrics, widgets) => {
     try {
@@ -1132,17 +1155,46 @@ export default function App() {
     setCmpFilters(c.filters || {});
     setCmpBy(c.by || "");
     setCmpMetrics(c.metrics || DEF_CMP_METRICS);
-    setCmpWidgets(c.widgets || ["overlay","metrics"]);
+    if (c.layout) {
+      setCmpLayout(c.layout);
+    } else if (c.widgets) {
+      setCmpLayout(c.widgets.map((k, i) => ({
+        i: k,
+        x: 0,
+        y: i * (WIDGET_DEFAULTS[k]?.h ?? 3),
+        w: WIDGET_DEFAULTS[k]?.w ?? 6,
+        h: WIDGET_DEFAULTS[k]?.h ?? 3,
+      })));
+    } else {
+      setCmpLayout(DEFAULT_CMP_LAYOUT);
+    }
   }, [log]);
   const toggleWidget = k => { setLayout(p => { const n = p.includes(k) ? p.filter(x => x !== k) : [...p, k]; saveLayoutAll({ layout: n }); return n; }); };
   const toggleDisp = k => { setDispOpts(p => { const n = { ...p, [k]: !p[k] }; saveLayoutAll({ dispOpts: n }); return n; }); };
   const setDispOpt = (k, v) => { setDispOpts(p => { const n = { ...p, [k]: v }; saveLayoutAll({ dispOpts: n }); return n; }); };
   const toggleCmpMetric = label => { setCmpMetrics(p => { const n = p.includes(label) ? p.filter(x => x !== label) : [...p, label]; saveLayoutAll({ cmpMetrics: n }); return n; }); };
-  const toggleCmpWidget = k => { setCmpWidgets(p => { const n = p.includes(k) ? p.filter(x => x !== k) : [...p, k]; saveLayoutAll({ cmpWidgets: n }); return n; }); };
+  const addToLayout = useCallback(k => {
+    setCmpLayout(prev => {
+      const item = { i: k, x: 0, y: Infinity, w: WIDGET_DEFAULTS[k]?.w ?? 6, h: WIDGET_DEFAULTS[k]?.h ?? 3 };
+      const next = [...prev, item];
+      saveLayoutAll({ cmpLayout: next });
+      return next;
+    });
+  }, [saveLayoutAll]);
 
-  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-  const onWidgetDragEnd = ({ active, over }) => { if (!over || active.id === over.id) return; setLayout(p => { const n = arrayMove(p, p.indexOf(active.id), p.indexOf(over.id)); saveLayoutAll({ layout: n }); return n; }); };
-  const onCmpWidgetDragEnd = ({ active, over }) => { if (!over || active.id === over.id) return; setCmpWidgets(p => { const n = arrayMove(p, p.indexOf(active.id), p.indexOf(over.id)); saveLayoutAll({ cmpWidgets: n }); return n; }); };
+  const removeFromLayout = useCallback(k => {
+    setCmpLayout(prev => {
+      const next = prev.filter(item => item.i !== k);
+      saveLayoutAll({ cmpLayout: next });
+      return next;
+    });
+  }, [saveLayoutAll]);
+
+  const handleLayoutChange = useCallback(layout => {
+    setCmpLayout(layout);
+    saveLayoutAll({ cmpLayout: layout });
+  }, [saveLayoutAll]);
+
 
   const total = parseInt(cfg.shotCount) || 0;
   const validShots = useMemo(() => shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y)), [shots]);
@@ -1678,6 +1730,147 @@ export default function App() {
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
     const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, velRanking: { label: "Best Velocity" }, accuracyRanking: { label: "Best Accuracy" } };
 
+    const cmpSessions = resolved.map(r => ({
+      name: r.session.config.sessionName || 'This Session',
+      color: r.color,
+      stats: r.stats,
+    }));
+
+    function renderWidgetContent(key) {
+      if (key === 'overlay') return (
+        <>
+          <div className="flex gap-1.5 mb-3 flex-wrap">
+            {[["showCep","CEP",OC.cep],["showR90","R90",OC.r90],["showEllipse","Ellipse",OC.ellipse],["showMpi","MPI",OC.mpi]].map(([k,l,c]) => (
+              <Toggle key={k} label={l} on={cmpDispOpts[k]} onToggle={() => setCmpDispOpts(p => ({ ...p, [k]: !p[k] }))} color={c} />
+            ))}
+          </div>
+          <div className="flex justify-center">
+            <DispersionMulti sessions={resolved.map(r => ({ shots: r.shots, stats: r.stats, color: r.color }))} size={Math.min(440, 400 + resolved.length * 10)} opts={cmpDispOpts} />
+          </div>
+          <div className="flex justify-center gap-5 mt-3 flex-wrap">
+            {resolved.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="size-2.5 rounded-full" style={{ background: r.color }} />
+                <span className="text-sm font-medium text-foreground">{r.session.config.sessionName}</span>
+                <span className="text-[11px] text-muted-foreground">({r.stats.n})</span>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+      if (key === 'metrics' && activeMetrics.length) return (
+        <>
+          <div className="flex justify-end mb-2">
+            <button onClick={() => setCmpMetricsOpen(o => !o)}
+              className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
+              {cmpMetricsOpen ? "Done" : "Edit metrics"}
+            </button>
+          </div>
+          {cmpMetricsOpen && (
+            <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
+              {ALL_METRICS.map(([label]) => (
+                <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
+              ))}
+            </div>
+          )}
+          <div className="overflow-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-muted-foreground text-left px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide">Metric</th>
+                  {resolved.map((r, i) => (
+                    <th key={i} className="text-right px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: r.color }}>{r.session.config.sessionName}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {activeMetrics.map(([label, key2, dec]) => {
+                  const vals = resolved.map(r => r.stats[key2]);
+                  const isLb = LOWER_BETTER.includes(label);
+                  const best = isLb ? Math.min(...vals) : Math.max(...vals);
+                  return (
+                    <tr key={label} className="border-b border-border odd:bg-secondary/30">
+                      <td className="px-2.5 py-2.5 text-sm" style={{ color: ({cep:OC.cep,r90:OC.r90,mpiX:OC.mpi,mpiY:OC.mpi}[key2]) || "var(--color-foreground)" }}>
+                        <MetricTip label={label}>{label}</MetricTip>
+                      </td>
+                      {resolved.map((r, i) => {
+                        const v = r.stats[key2];
+                        const isBest = v === best && vals.filter(x => x === best).length === 1;
+                        return <td key={i} className={cn("px-2.5 py-2.5 text-right font-mono font-semibold text-sm", !isBest && "text-foreground")} style={isBest ? { color: r.color } : undefined}>{v.toFixed(dec)}{isBest ? " ✦" : ""}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      );
+      if (key === 'velCompare') return (
+        <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
+          {resolved.map((r, i) => (
+            <div key={i}>
+              <div className="text-xs font-semibold mb-2" style={{ color: r.color }}>{r.session.config.sessionName}</div>
+              <VelHist shots={r.shots} width={280} color={r.color} />
+            </div>
+          ))}
+        </div>
+      );
+      if (key === 'shotLog') {
+        const allShots = resolved.flatMap(r =>
+          [...r.shots]
+            .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
+            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color, mpiX: r.stats.mpiX, mpiY: r.stats.mpiY }))
+        );
+        const hdrs = ["Session","#","Serial","FPS","X","Y","Wt","Rad"];
+        const rightAlign = ["FPS","X","Y","Wt","Rad"];
+        return (
+          <div className="overflow-auto max-h-80">
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 bg-card z-10">
+                <tr className="border-b border-border">
+                  {hdrs.map(h => (
+                    <th key={h} className={cn(
+                      "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
+                      rightAlign.includes(h) ? "text-right" : "text-left"
+                    )}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allShots.map((s, i) => {
+                  const r = rad(s.x - (s.mpiX || 0), s.y - (s.mpiY || 0));
+                  return (
+                    <tr key={i} className="border-b transition-colors"
+                      style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
+                      <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
+                      <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
+                      <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.fps}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.x}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.y}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{s.weight || "—"}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{r.toFixed(3)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      if (key === 'attachments') return (
+        <LibraryPage
+          log={log}
+          vars={vars}
+          preFilterSessionIds={resolved.map(r => r.session.id)}
+          onError={setDbError} />
+      );
+      if (key === 'velRanking') return <VelRankingWidget sessions={cmpSessions} />;
+      if (key === 'accuracyRanking') return <AccuracyRankingWidget sessions={cmpSessions} />;
+      return null;
+    }
+
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
         {/* Toolbar */}
@@ -1697,7 +1890,7 @@ export default function App() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpWidgets)}>
+            <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpLayout)}>
               Save Comparison
             </Btn>
             <Btn onClick={newSession}>+ New Session</Btn>
@@ -1865,241 +2058,61 @@ export default function App() {
           </div>{/* end session picker */}
 
           {resolved.length >= 2 ? (
-            <>
-              {cmpWidgets.map(key => {
-                if (key === "overlay") return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Dispersion Overlay</span>
-                      <button onClick={() => toggleCmpWidget("overlay")} title="Remove widget"
-                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                        <X size={13} />
-                      </button>
-                    </div>
-                    <div className="flex gap-1.5 mb-3 flex-wrap">
-                      {[["showCep","CEP",OC.cep],["showR90","R90",OC.r90],["showEllipse","Ellipse",OC.ellipse],["showMpi","MPI",OC.mpi]].map(([k,l,c]) => (
-                        <Toggle key={k} label={l} on={cmpDispOpts[k]} onToggle={() => setCmpDispOpts(p => ({ ...p, [k]: !p[k] }))} color={c} />
-                      ))}
-                    </div>
-                    <div className="flex justify-center">
-                      <DispersionMulti sessions={resolved.map(r => ({ shots: r.shots, stats: r.stats, color: r.color }))} size={Math.min(440, 400 + resolved.length * 10)} opts={cmpDispOpts} />
-                    </div>
-                    <div className="flex justify-center gap-5 mt-3 flex-wrap">
-                      {resolved.map((r, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <div className="size-2.5 rounded-full" style={{ background: r.color }} />
-                          <span className="text-sm font-medium text-foreground">{r.session.config.sessionName}</span>
-                          <span className="text-[11px] text-muted-foreground">({r.stats.n})</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-                if (key === "metrics" && activeMetrics.length) return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Metrics Comparison</span>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setCmpMetricsOpen(o => !o)}
-                          className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
-                          {cmpMetricsOpen ? "Done" : "Edit metrics"}
-                        </button>
-                        <button onClick={() => toggleCmpWidget("metrics")} title="Remove widget"
-                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </div>
-                    {cmpMetricsOpen && (
-                      <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
-                        {ALL_METRICS.map(([label]) => (
-                          <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
-                        ))}
-                      </div>
-                    )}
-                    <div className="overflow-auto">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-muted-foreground text-left px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide">Metric</th>
-                            {resolved.map((r, i) => (
-                              <th key={i} className="text-right px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: r.color }}>{r.session.config.sessionName}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activeMetrics.map(([label, key2, dec]) => {
-                            const vals = resolved.map(r => r.stats[key2]);
-                            const isLb = LOWER_BETTER.includes(label);
-                            const best = isLb ? Math.min(...vals) : Math.max(...vals);
-                            return (
-                              <tr key={label} className="border-b border-border odd:bg-secondary/30">
-                                <td className="px-2.5 py-2.5 text-sm" style={{ color: ({cep:OC.cep,r90:OC.r90,mpiX:OC.mpi,mpiY:OC.mpi}[key2]) || "var(--color-foreground)" }}>
-                                  <MetricTip label={label}>{label}</MetricTip>
-                                </td>
-                                {resolved.map((r, i) => {
-                                  const v = r.stats[key2];
-                                  const isBest = v === best && vals.filter(x => x === best).length === 1;
-                                  return <td key={i} className={cn("px-2.5 py-2.5 text-right font-mono font-semibold text-sm", !isBest && "text-foreground")} style={isBest ? { color: r.color } : undefined}>{v.toFixed(dec)}{isBest ? " ✦" : ""}</td>;
-                                })}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                );
-                if (key === "velCompare") return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Velocity Comparison</span>
-                      <button onClick={() => toggleCmpWidget("velCompare")} title="Remove widget"
-                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                        <X size={13} />
-                      </button>
-                    </div>
-                    <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
-                      {resolved.map((r, i) => (
-                        <div key={i}>
-                          <div className="text-xs font-semibold mb-2" style={{ color: r.color }}>{r.session.config.sessionName}</div>
-                          <VelHist shots={r.shots} width={280} color={r.color} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-                if (key === "shotLog") {
-                  const allShots = resolved.flatMap(r =>
-                    [...r.shots]
-                      .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
-                      .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color, mpiX: r.stats.mpiX, mpiY: r.stats.mpiY }))
-                  );
-                  const hdrs = ["Session","#","Serial","FPS","X","Y","Wt","Rad"];
-                  const rightAlign = ["FPS","X","Y","Wt","Rad"];
-                  return (
-                    <div key={key} className="p-6 border-b border-border">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Shot Log</span>
-                        <button onClick={() => toggleCmpWidget("shotLog")} title="Remove widget"
-                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                          <X size={13} />
-                        </button>
-                      </div>
-                      <div className="overflow-auto max-h-80">
-                        <table className="w-full text-xs border-collapse">
-                          <thead className="sticky top-0 bg-card z-10">
-                            <tr className="border-b border-border">
-                              {hdrs.map(h => (
-                                <th key={h} className={cn(
-                                  "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                                  rightAlign.includes(h) ? "text-right" : "text-left"
-                                )}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {allShots.map((s, i) => {
-                              const r = rad(s.x - (s.mpiX || 0), s.y - (s.mpiY || 0));
-                              return (
-                                <tr key={i} className="border-b transition-colors"
-                                  style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
-                                  <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>
-                                    {s.sessionName}
-                                  </td>
-                                  <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
-                                  <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
-                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.fps}</td>
-                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.x}</td>
-                                  <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.y}</td>
-                                  <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{s.weight || "—"}</td>
-                                  <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{r.toFixed(3)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                }
-                if (key === "attachments") return (
-                  <div key={key} className="p-6 border-b border-border">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Attachments</span>
-                      <button onClick={() => toggleCmpWidget("attachments")} title="Remove widget"
-                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                        <X size={13} />
-                      </button>
-                    </div>
-                    <LibraryPage
-                      log={log}
-                      vars={vars}
-                      preFilterSessionIds={resolved.map(r => r.session.id)}
-                      onError={setDbError} />
-                  </div>
-                );
-                if (key === "velRanking" || key === "accuracyRanking") {
-                  const hasBoth = cmpWidgets.includes("velRanking") && cmpWidgets.includes("accuracyRanking");
-                  if (hasBoth && key === "accuracyRanking") return null;
-                  const cmpSessions = resolved.map(r => ({ name: r.session.config.sessionName || 'This Session', color: r.color, stats: r.stats }));
-                  if (hasBoth) return (
-                    <div key="rankingPair" className="p-4 border-b border-border">
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'stretch' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Velocity</span>
-                            <button onClick={() => toggleCmpWidget("velRanking")} title="Remove widget"
-                              className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                              <X size={13} />
-                            </button>
+              <>
+                <div ref={rglContainerRef} className="p-3">
+                  <GridLayout
+                    layout={cmpLayout}
+                    cols={6}
+                    rowHeight={120}
+                    width={rglWidth}
+                    draggableHandle=".rgl-drag-handle"
+                    resizeHandles={['se']}
+                    onLayoutChange={handleLayoutChange}
+                  >
+                    {cmpLayout.map(item => {
+                      const key = item.i;
+                      const def = CMP_WIDGET_DEFS[key];
+                      if (!def) return null;
+                      return (
+                        <div key={key}>
+                          <div className="widget-panel h-full flex flex-col bg-card border border-border rounded-xl overflow-hidden">
+                            <div className="widget-header flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40 shrink-0">
+                              <div className="rgl-drag-handle flex items-center gap-1.5 cursor-grab select-none">
+                                <GripVertical size={13} className="grip-icon text-muted-foreground/50" />
+                                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{def.label}</span>
+                              </div>
+                              <button
+                                className="rgl-remove-btn flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none"
+                                onClick={() => removeFromLayout(key)}
+                                title="Remove widget">
+                                <X size={13} />
+                              </button>
+                            </div>
+                            <div className="widget-body flex-1 overflow-auto p-4">
+                              {renderWidgetContent(key)}
+                            </div>
                           </div>
-                          <VelRankingWidget sessions={cmpSessions} style={{ flex: 1 }} />
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Accuracy</span>
-                            <button onClick={() => toggleCmpWidget("accuracyRanking")} title="Remove widget"
-                              className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                              <X size={13} />
-                            </button>
-                          </div>
-                          <AccuracyRankingWidget sessions={cmpSessions} style={{ flex: 1 }} />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                  return (
-                    <div key={key} className="p-4 border-b border-border">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-semibold uppercase tracking-wider text-foreground">{key === "velRanking" ? "Best Velocity" : "Best Accuracy"}</span>
-                        <button onClick={() => toggleCmpWidget(key)} title="Remove widget"
-                          className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
-                          <X size={13} />
-                        </button>
-                      </div>
-                      {key === "velRanking" ? <VelRankingWidget sessions={cmpSessions} /> : <AccuracyRankingWidget sessions={cmpSessions} />}
-                    </div>
-                  );
-                }
-                return null;
-              })}
-              {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpWidgets.includes(k)) && (
-                <div className="p-5 border-b border-border flex justify-center">
-                  <WidgetAdder
-                    available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpWidgets.includes(k))}
-                    labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
-                    onAdd={toggleCmpWidget} />
+                      );
+                    })}
+                  </GridLayout>
                 </div>
-              )}
-              <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between">
-                <span className="text-muted-foreground text-[11px]">✦ best in category</span>
-                <span className="text-muted-foreground text-[11px]">SP1-03 Test Program</span>
-              </div>
-            </>
-          ) : (
-            <Empty icon={<Crosshair size={18} />}>Select 2 or more sessions above to compare</Empty>
-          )}
+                {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpLayout.some(item => item.i === k)) && (
+                  <div className="widget-add-bar p-5 border-t border-border flex justify-center">
+                    <WidgetAdder
+                      available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpLayout.some(item => item.i === k))}
+                      labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
+                      onAdd={addToLayout} />
+                  </div>
+                )}
+                <div className="bg-secondary border-t border-border px-6 py-2.5 flex justify-between">
+                  <span className="text-muted-foreground text-[11px]">✦ best in category</span>
+                  <span className="text-muted-foreground text-[11px]">SP1-03 Test Program</span>
+                </div>
+              </>
+            ) : (
+              <Empty icon={<Crosshair size={18} />}>Select 2 or more sessions above to compare</Empty>
+            )}
         </div>
 
         {/* Session chip hover tooltip */}
