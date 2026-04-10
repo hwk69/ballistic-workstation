@@ -28,7 +28,8 @@ export function VelRankingWidget({ sessions }) {
           {sorted.map((sess, i) => {
             const isBest = i === 0 && !single;
             return (
-              <tr key={`${sess.name}-${i}`} className="border-b border-border odd:bg-secondary/30">
+              <tr key={`${sess.name}-${i}`} className="border-b border-border odd:bg-secondary/30"
+                style={isBest ? { backgroundColor: `${sess.color}18` } : undefined}>
                 <td className="px-2.5 py-2.5 text-sm">
                   <span className="inline-flex items-center gap-1.5">
                     <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: sess.color }} />
