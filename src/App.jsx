@@ -1748,7 +1748,7 @@ export default function App() {
       const def = CMP_WIDGET_DEFS[key];
       if (!def) return null;
       return (
-        <div key={key} className="border-b border-border">
+        <div className="border-b border-border">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/40">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
               {def.label}
@@ -2140,16 +2140,16 @@ export default function App() {
               <>
                 {/* Main + Sidebar row */}
                 {(mainItems.length > 0 || sidebarItems.length > 0) && (
-                  <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                  <div className="flex items-stretch">
                     {mainItems.length > 0 && (
-                      <div style={{ width: sidebarItems.length > 0 ? mainWidth : '100%', flexShrink: 0 }}>
+                      <div className="shrink-0" style={{ width: sidebarItems.length > 0 ? mainWidth : '100%' }}>
                         {mainItems.map(item => renderWidget(item))}
                       </div>
                     )}
                     {sidebarItems.length > 0 && (
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--color-border)' }}>
+                      <div className="flex-1 flex flex-col border-l border-border min-w-0">
                         {sidebarItems.map(item => (
-                          <div key={item.i} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                          <div key={item.i} className="flex-1 flex flex-col">
                             {renderWidget(item)}
                           </div>
                         ))}
