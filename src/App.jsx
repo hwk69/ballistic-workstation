@@ -8,6 +8,8 @@ import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@d
 import { CSS as dndCSS } from '@dnd-kit/utilities';
 import { GripVertical, Crosshair, BarChart2, History, X, Plus } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import { AttachmentWidget } from './components/AttachmentWidget.jsx';
+import { LibraryPage } from './components/LibraryPage.jsx';
 import * as db from './lib/db.js';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -805,12 +807,15 @@ const WIDGETS = {
   xyTrack:    { label: "X/Y Deviation", default: false, render: (s, vs) => (
     <AutoSizeChart render={(w) => <XYTrack shots={vs} width={w - 8} />} />
   )},
-  shotTable:  { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
+  shotTable:   { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
+  attachments: { label: "Attachments", default: false, render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
+    <AttachmentWidget session={s} onError={onError} />
+  )},
 };
 const DEF_LAYOUT = Object.keys(WIDGETS).filter(k => WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
-const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5 };
+const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6 };
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 function SecLabel({ children, className = "" }) {
@@ -960,6 +965,8 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [dbError, setDbError] = useState(null);
+  const [libraryFilterSessionIds, setLibraryFilterSessionIds] = useState(null);
+  const [hasAttachments, setHasAttachments] = useState(false);
 
   // Auto-deselect sessions that no longer match active filters
   useEffect(() => {
@@ -973,10 +980,11 @@ export default function App() {
   const existingCount = useMemo(() => log.reduce((c, s) => s.config.rifleRate === cfg.rifleRate ? c + s.shots.length : c, 0), [log, cfg.rifleRate]);
   const loadAllData = async () => {
     try {
-      const [settings, sessions, comparisons] = await Promise.all([
+      const [settings, sessions, comparisons, allAtts] = await Promise.all([
         db.getSettings(),
         db.getSessions(),
         db.getComparisons(),
+        db.getAttachments(),
       ]);
       if (settings.opts)   setOpts(p => ({ ...p, ...settings.opts }));
       if (settings.vars)   setVars(settings.vars);
@@ -988,6 +996,7 @@ export default function App() {
       }
       setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
       setSavedComparisons(comparisons);
+      setHasAttachments(allAtts.length > 0);
     } catch (err) {
       setDbError('Failed to load data: ' + err.message);
     }
@@ -1141,6 +1150,7 @@ export default function App() {
     { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
     { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
     { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
+    { label: "Library", ph: P.LIBRARY, disabled: !hasAttachments, onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
 
 
@@ -1379,6 +1389,7 @@ export default function App() {
             <Btn v="secondary" onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: log.find(x => x.id !== s.id)?.id, color: PALETTE[1] }]); setPhase(P.CMP); }}>Compare</Btn>
           )}
           <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
+          <Btn v="secondary" onClick={() => { setLibraryFilterSessionIds([s.id]); setPhase(P.LIBRARY); }}>Library →</Btn>
         </div>
 
         {/* Results card */}
@@ -1399,7 +1410,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {layout.map((key, idx) => {
               const wg = WIDGETS[key]; if (!wg) return null;
-              const fullWidth = key === "shotTable";
+              const fullWidth = key === "shotTable" || key === "attachments";
               return (
                 <div key={key} className={cn(
                   "p-5 border-b border-border",
@@ -1413,7 +1424,7 @@ export default function App() {
                       <X size={13} />
                     </button>
                   </div>
-                  {wg.render(s, vs, st, dispOpts, toggleDisp, setDispOpt)}
+                  {wg.render(s, vs, st, dispOpts, toggleDisp, setDispOpt, setDbError)}
                 </div>
               );
             })}
@@ -1575,6 +1586,11 @@ export default function App() {
             <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpWidgets)}>
               Save Comparison
             </Btn>
+            <Btn v="secondary" onClick={() => {
+              const ids = cmpSlots.map(sl => sl.id).filter(Boolean);
+              setLibraryFilterSessionIds(ids.length ? ids : null);
+              setPhase(P.LIBRARY);
+            }}>Library →</Btn>
             <Btn onClick={newSession}>+ New Session</Btn>
           </div>
         </div>
@@ -1948,6 +1964,28 @@ export default function App() {
       </AppShell>
     );
   }
+
+  // ─── LIBRARY ─────────────────────────────────────────────────────────────────
+  if (phase === P.LIBRARY) return (
+    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-1">Attachment Library</h1>
+          <p className="text-sm text-muted-foreground">
+            {libraryFilterSessionIds ? `Filtered to ${libraryFilterSessionIds.length} session${libraryFilterSessionIds.length !== 1 ? 's' : ''}` : 'All attachments'}
+            {libraryFilterSessionIds && (
+              <button onClick={() => setLibraryFilterSessionIds(null)} className="ml-2 text-primary text-xs cursor-pointer bg-transparent border-none hover:underline">Show all</button>
+            )}
+          </p>
+        </div>
+      </div>
+      <LibraryPage
+        log={log}
+        vars={vars}
+        preFilterSessionIds={libraryFilterSessionIds}
+        onError={setDbError} />
+    </AppShell>
+  );
 
   // ─── HISTORY ─────────────────────────────────────────────────────────────────
   if (phase === P.HISTORY) {
