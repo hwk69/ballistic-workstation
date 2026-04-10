@@ -13,6 +13,10 @@ import { LibraryPage } from './components/LibraryPage.jsx';
 import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
+import ReactGridLayout, { WidthProvider } from 'react-grid-layout';
+import { toPng } from 'html-to-image';
+
+const RGL = WidthProvider(ReactGridLayout);
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
