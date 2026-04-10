@@ -5,14 +5,13 @@ import { Button } from "@/components/ui/button";
 import { useScroll } from "@/components/use-scroll";
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
-import { GripVertical, Crosshair, BarChart2, History, X, Plus, Paperclip } from 'lucide-react';
+import { Crosshair, BarChart2, History, X, Plus, Paperclip } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
 import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
-import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import { toPng } from 'html-to-image';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -31,20 +30,23 @@ const GRID_CLR = "rgba(255,255,255,0.10)";
 const AXIS_CLR = "rgba(255,255,255,0.40)";
 const TICK_CLR = "rgba(255,255,255,0.85)";
 
-// ─── Widget layout defaults ──────────────────────────────────────────────────
-const WIDGET_DEFAULTS = {
-  overlay:         { w: 4, h: 6 },
-  metrics:         { w: 6, h: 4 },
-  velCompare:      { w: 4, h: 4 },
-  shotLog:         { w: 6, h: 5 },
-  attachments:     { w: 6, h: 4 },
-  velRanking:      { w: 3, h: 4 },
-  accuracyRanking: { w: 3, h: 4 },
+// ─── Widget zone defaults ────────────────────────────────────────────────────
+const DEFAULT_ZONE = {
+  overlay:         'main',
+  velRanking:      'sidebar',
+  accuracyRanking: 'sidebar',
+  metrics:         'full',
+  velCompare:      'full',
+  shotLog:         'full',
+  attachments:     'full',
 };
 const DEFAULT_CMP_LAYOUT = [
-  { i: 'overlay', x: 0, y: 0, w: 4, h: 6 },
-  { i: 'metrics', x: 0, y: 6, w: 6, h: 4 },
+  { i: 'overlay',         zone: 'main'    },
+  { i: 'velRanking',      zone: 'sidebar' },
+  { i: 'accuracyRanking', zone: 'sidebar' },
+  { i: 'metrics',         zone: 'full'    },
 ];
+const DEFAULT_CMP_SPLIT = '2/3';
 
 // ─── Data constants ───────────────────────────────────────────────────────────
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
@@ -1007,7 +1009,6 @@ function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, db
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const { width: rglWidth, containerRef: rglContainerRef } = useContainerWidth({ initialWidth: 1060 });
   const [phase, setPhase]   = useState(P.SETUP);
   const [log, setLog]       = useState([]);
   const [opts, setOpts]     = useState(DEF_OPTS);
@@ -1045,7 +1046,6 @@ export default function App() {
   const [histSearch, setHistSearch] = useState("");
   const [histSort, setHistSort] = useState("newest");
   const [widgetSizes, setWidgetSizes] = useState({});
-  const [cmpWidgetSizes, setCmpWidgetSizes] = useState({});
   const [authed, setAuthed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [dbError, setDbError] = useState(null);
