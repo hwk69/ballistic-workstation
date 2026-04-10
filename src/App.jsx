@@ -32,21 +32,29 @@ const TICK_CLR = "rgba(255,255,255,0.85)";
 
 // ─── Widget zone defaults ────────────────────────────────────────────────────
 const DEFAULT_ZONE = {
-  overlay:         'main',
-  velRanking:      'sidebar',
-  accuracyRanking: 'sidebar',
-  metrics:         'full',
-  velCompare:      'full',
-  shotLog:         'full',
-  attachments:     'full',
+  overlay:  'main',
+  rankings: 'sidebar',
+  metrics:  'full',
+  velCompare: 'full',
+  shotLog:  'full',
+  attachments: 'full',
 };
 const DEFAULT_CMP_LAYOUT = [
-  { i: 'overlay',         zone: 'main'    },
-  { i: 'velRanking',      zone: 'sidebar' },
-  { i: 'accuracyRanking', zone: 'sidebar' },
-  { i: 'metrics',         zone: 'full'    },
+  { i: 'overlay',  zone: 'main'    },
+  { i: 'rankings', zone: 'sidebar' },
+  { i: 'metrics',  zone: 'full'    },
 ];
 const DEFAULT_CMP_SPLIT = '2/3';
+
+// Migrate old velRanking/accuracyRanking entries to combined rankings widget
+function migrateLayout(items) {
+  const hasOld = items.some(item => item.i === 'velRanking' || item.i === 'accuracyRanking');
+  if (!hasOld) return items;
+  const zone = (items.find(item => item.i === 'velRanking') ?? items.find(item => item.i === 'accuracyRanking'))?.zone ?? 'sidebar';
+  const out = items.filter(item => item.i !== 'velRanking' && item.i !== 'accuracyRanking');
+  if (!out.some(item => item.i === 'rankings')) out.splice(1, 0, { i: 'rankings', zone });
+  return out;
+}
 
 // ─── Data constants ───────────────────────────────────────────────────────────
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
@@ -1087,15 +1095,15 @@ export default function App() {
           const raw = settings.layout.cmpLayout;
           if (Array.isArray(raw) && raw.length > 0) {
             if (typeof raw[0] === 'string') {
-              setCmpLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
+              setCmpLayout(migrateLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' }))));
             } else if (raw[0].x !== undefined) {
-              setCmpLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' })));
+              setCmpLayout(migrateLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' }))));
             } else {
-              setCmpLayout(raw);
+              setCmpLayout(migrateLayout(raw));
             }
           }
         } else if (settings.layout.cmpWidgets) {
-          setCmpLayout(settings.layout.cmpWidgets.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
+          setCmpLayout(migrateLayout(settings.layout.cmpWidgets.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' }))));
         }
         if (settings.layout.cmpSplit) setCmpSplit(settings.layout.cmpSplit);
       }
@@ -1157,11 +1165,11 @@ export default function App() {
     const raw = c.layout ?? c.widgets;
     if (Array.isArray(raw) && raw.length > 0) {
       if (typeof raw[0] === 'string') {
-        setCmpLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' })));
+        setCmpLayout(migrateLayout(raw.map(k => ({ i: k, zone: DEFAULT_ZONE[k] ?? 'full' }))));
       } else if (raw[0].x !== undefined) {
-        setCmpLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' })));
+        setCmpLayout(migrateLayout(raw.map(item => ({ i: item.i, zone: DEFAULT_ZONE[item.i] ?? 'full' }))));
       } else if (raw[0].zone !== undefined) {
-        setCmpLayout(raw);
+        setCmpLayout(migrateLayout(raw));
       } else {
         setCmpLayout(DEFAULT_CMP_LAYOUT);
       }
@@ -1735,7 +1743,7 @@ export default function App() {
       return { ...sl, session: s, shots: vs, stats: s.stats };
     }).filter(Boolean);
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, velRanking: { label: "Best Velocity" }, accuracyRanking: { label: "Best Accuracy" } };
+    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, rankings: { label: "Rankings" } };
     const mainItems    = cmpLayout.filter(item => item.zone === 'main');
     const sidebarItems = cmpLayout.filter(item => item.zone === 'sidebar');
     const fullItems    = cmpLayout.filter(item => item.zone === 'full');
@@ -1929,8 +1937,12 @@ export default function App() {
           preFilterSessionIds={resolved.map(r => r.session.id)}
           onError={setDbError} />
       );
-      if (key === 'velRanking') return <VelRankingWidget sessions={cmpSessions} />;
-      if (key === 'accuracyRanking') return <AccuracyRankingWidget sessions={cmpSessions} />;
+      if (key === 'rankings') return (
+        <div className="flex gap-4">
+          <div className="flex-1 min-w-0"><VelRankingWidget sessions={cmpSessions} /></div>
+          <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>
+        </div>
+      );
       return null;
     }
 
