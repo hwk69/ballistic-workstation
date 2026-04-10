@@ -5,7 +5,10 @@ const WIN_COLOR = '#69db7c';
 export function VelRankingWidget({ sessions }) {
   if (!sessions || sessions.length === 0) return null;
 
-  const sorted = [...sessions].sort((a, b) => b.stats.meanV - a.stats.meanV);
+  const sorted = [...sessions]
+    .filter(s => s.stats && s.stats.meanV != null && !isNaN(s.stats.meanV))
+    .sort((a, b) => b.stats.meanV - a.stats.meanV);
+  if (sorted.length === 0) return null;
   const best = sorted[0].stats.meanV;
   const worst = sorted[sorted.length - 1].stats.meanV;
   const range = best - worst || 1;
@@ -27,7 +30,7 @@ export function VelRankingWidget({ sessions }) {
           const color = isWinner ? WIN_COLOR : sess.color;
 
           return (
-            <div key={sess.name} style={{
+            <div key={`${sess.name}-${i}`} style={{
               padding: '9px 11px',
               borderRadius: 6,
               background: isWinner ? 'rgba(105,219,124,0.10)' : i === 1 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.015)',
