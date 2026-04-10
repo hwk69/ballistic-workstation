@@ -21,7 +21,7 @@ const BD   = "rgba(255,255,255,0.07)";
 const BD_HI= "rgba(255,255,255,0.13)";
 const TX   = "#ededf2";
 const TX2  = "#8a8a9e";
-const FONT = "'DM Sans', system-ui, sans-serif";
+const FONT = "'Geist Variable', system-ui, sans-serif";
 // Chart-specific
 const CHART_BG = "#0f0f14";
 const GRID_CLR = "rgba(255,255,255,0.10)";
@@ -136,27 +136,26 @@ function SB({ label, value, gold, accentColor, onClick, active }) {
   return (
     <div
       className={cn(
-        "relative border border-border rounded-xl p-4 border-l-[3px] transition-all duration-200",
+        "relative border border-border rounded-lg p-3.5 border-l-2 transition-all duration-200",
         linked ? "cursor-pointer select-none" : "",
         linked && active  && "border-opacity-60",
-        linked && !active && "opacity-50 hover:opacity-75 hover:border-border/80",
+        linked && !active && "opacity-40 hover:opacity-70",
       )}
       style={{
-        borderLeftColor: ac || "var(--color-border)",
-        background: linked && active && accentColor ? accentColor + "12" : "var(--color-secondary)",
+        borderLeftColor: ac || "rgba(255,255,255,0.12)",
+        background: linked && active && accentColor ? accentColor + "10" : "var(--color-secondary)",
       }}
       onClick={onClick}>
-      {/* Clickable indicator dot */}
       {linked && (
         <span
-          className="absolute top-3 right-3 size-2 rounded-full transition-all duration-200"
-          style={{ background: active ? accentColor : "rgba(255,255,255,0.15)" }} />
+          className="absolute top-3 right-3 size-1.5 rounded-full transition-all duration-200"
+          style={{ background: active ? accentColor : "rgba(255,255,255,0.18)" }} />
       )}
-      <div className="text-sm font-semibold uppercase tracking-wide mb-1.5"
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] mb-2"
         style={{ color: ac || "var(--color-muted-foreground)" }}>
         <MetricTip label={label}>{label}</MetricTip>
       </div>
-      <div className="text-base font-bold font-mono" style={{ color: ac || "var(--color-foreground)" }}>
+      <div className="text-[17px] font-bold font-mono leading-none" style={{ color: ac || "var(--color-foreground)" }}>
         {value}
       </div>
     </div>
@@ -251,7 +250,7 @@ function WidgetAdder({ available, labels, onAdd }) {
       </button>
       {open && (
         <div style={{ position: "fixed", top: pos.top ?? undefined, bottom: pos.bottom ?? undefined, left: pos.left, zIndex: 200 }}
-          className="bg-card border border-border rounded-xl p-1.5 shadow-xl flex flex-col min-w-[170px]">
+          className="bg-card border border-border rounded-lg p-1.5 shadow-xl flex flex-col min-w-[170px]">
           {available.map(k => (
             <button key={k} onClick={() => { onAdd(k); setOpen(false); }}
               className="text-left text-sm text-foreground px-3 py-1.5 rounded-lg hover:bg-secondary cursor-pointer bg-transparent border-none transition-colors">
@@ -823,9 +822,9 @@ function SecLabel({ children, className = "" }) {
 }
 function CardSection({ title, children, style = {}, className = "" }) {
   return (
-    <div className={cn("bg-card border border-border rounded-xl p-6", className)} style={style}>
+    <div className={cn("bg-card border border-border rounded-lg p-6", className)} style={style}>
       {title && (
-        <div className="mb-4 pb-3.5 border-b border-border">
+        <div className="mb-4 pb-3 border-b border-border">
           <SecLabel>{title}</SecLabel>
         </div>
       )}
@@ -851,8 +850,8 @@ function Empty({ children, icon, action }) {
 function PageHead({ title, sub }) {
   return (
     <div className="mb-8">
-      <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-1.5">{title}</h1>
-      {sub && <p className="text-sm text-muted-foreground">{sub}</p>}
+      <h1 className="text-[26px] font-bold tracking-tight text-foreground mb-1.5 leading-tight">{title}</h1>
+      {sub && <p className="text-[13px] text-muted-foreground">{sub}</p>}
     </div>
   );
 }
@@ -868,16 +867,21 @@ function AppNavBar({ phase, navItems, sessionCount }) {
   const scrolled = useScroll(10);
   return (
     <header className={cn(
-      "sticky top-0 z-50 w-full border-b border-transparent transition-[background,border-color,backdrop-filter] duration-300",
+      "sticky top-0 z-50 w-full border-b transition-[background,border-color,backdrop-filter] duration-300",
       scrolled
-        ? "bg-background/90 supports-[backdrop-filter]:bg-background/70 border-border backdrop-blur-lg"
-        : "bg-background"
+        ? "bg-background/95 supports-[backdrop-filter]:bg-background/80 border-border backdrop-blur-md"
+        : "bg-background border-border/50"
     )}>
-      <nav className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-7">
-        <div className="text-primary font-bold text-xs tracking-[0.12em] uppercase shrink-0">
-          Ballistic WS
+      <nav className="mx-auto flex h-14 w-full max-w-6xl items-stretch justify-between px-7">
+        {/* Wordmark */}
+        <div className="flex items-center gap-2 shrink-0 pr-6">
+          <Crosshair size={14} className="text-primary shrink-0" strokeWidth={2.5} />
+          <span className="text-[13px] font-bold tracking-[0.14em] uppercase text-foreground">
+            Ballistic
+          </span>
         </div>
-        <div className="flex items-center gap-0.5">
+        {/* Nav items with gold bottom-border active indicator */}
+        <div className="flex items-stretch flex-1">
           {navItems.map(item => {
             const isActive = phase === item.ph;
             return (
@@ -886,21 +890,27 @@ function AppNavBar({ phase, navItems, sessionCount }) {
                 disabled={item.disabled}
                 onClick={item.disabled ? undefined : item.onClick}
                 className={cn(
-                  "h-8 px-3 rounded-lg text-sm font-medium transition-colors duration-150",
-                  "bg-transparent border border-transparent cursor-pointer",
+                  "relative px-3.5 text-[13px] font-medium transition-colors duration-150 cursor-pointer",
+                  "bg-transparent border-0 outline-none",
                   isActive
-                    ? "text-primary bg-primary/10 border-primary/20"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                  item.disabled && "opacity-30 cursor-not-allowed pointer-events-none"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                  item.disabled && "opacity-25 cursor-not-allowed pointer-events-none"
                 )}>
                 {item.label}
+                {isActive && (
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
+                )}
               </button>
             );
           })}
         </div>
-        <span className="text-xs text-muted-foreground shrink-0">
-          {sessionCount} session{sessionCount !== 1 ? "s" : ""}
-        </span>
+        {/* Session count */}
+        <div className="flex items-center shrink-0 pl-6">
+          <span className="text-[11px] font-medium tracking-wider text-muted-foreground/60 uppercase">
+            {sessionCount} {sessionCount === 1 ? "Session" : "Sessions"}
+          </span>
+        </div>
       </nav>
     </header>
   );
@@ -2056,24 +2066,27 @@ export default function App() {
             ) : (
               <div className="space-y-3">
                 {histFiltered.map(s => (
-                  <div key={s.id} className="bg-card border border-border rounded-xl p-5 flex items-start justify-between gap-4">
+                  <div key={s.id} className="bg-card border border-border border-l-2 rounded-lg p-5 flex items-start justify-between gap-4 transition-colors hover:border-border/80"
+                    style={{ borderLeftColor: "rgba(255,223,0,0.25)" }}>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-[15px] text-foreground mb-1">{s.config.sessionName || "Session"}</div>
-                      <div className="text-xs text-muted-foreground mb-0.5">{vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}</div>
-                      <div className="text-[11px] text-muted-foreground">{s.config.date} · {s.stats.n} shots</div>
+                      <div className="font-semibold text-[15px] text-foreground mb-1 leading-tight">{s.config.sessionName || "Unnamed Session"}</div>
+                      <div className="text-[12px] text-muted-foreground mb-1">{vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ")}</div>
+                      <div className="text-[11px] text-muted-foreground/60 font-mono">{s.config.date}  ·  {s.stats.n} shots</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-xs mb-2.5">
-                        CEP <span className="text-primary font-semibold font-mono">{s.stats.cep.toFixed(2)}</span>
-                        <span className="text-muted-foreground/40 mx-1"> · </span>
-                        SD <span className="text-foreground font-semibold font-mono">{s.stats.sdV.toFixed(1)}</span>
+                      <div className="text-[12px] mb-3 font-mono">
+                        <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">CEP </span>
+                        <span className="text-primary font-bold">{s.stats.cep.toFixed(2)}</span>
+                        <span className="text-muted-foreground/30 mx-2">·</span>
+                        <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">SD </span>
+                        <span className="text-foreground font-semibold">{s.stats.sdV.toFixed(1)}</span>
                       </div>
                       <div className="flex gap-3 justify-end flex-wrap">
-                        <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer">View</button>
-                        <button onClick={() => openEditSession(s.id)} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">Edit</button>
-                        <button onClick={() => continueSession(s.id)} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">+ Shots</button>
-                        <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="text-muted-foreground text-xs font-medium bg-transparent border-none cursor-pointer">Compare</button>
-                        <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Delete</button>
+                        <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="text-primary text-[12px] font-semibold bg-transparent border-none cursor-pointer hover:text-primary/80 transition-colors">View</button>
+                        <button onClick={() => openEditSession(s.id)} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">Edit</button>
+                        <button onClick={() => continueSession(s.id)} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">+ Shots</button>
+                        <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="text-muted-foreground text-[12px] font-medium bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">Compare</button>
+                        <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="text-destructive text-[12px] bg-transparent border-none cursor-pointer hover:opacity-80 transition-opacity">Delete</button>
                       </div>
                     </div>
                   </div>

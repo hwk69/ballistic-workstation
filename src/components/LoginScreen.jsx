@@ -23,43 +23,62 @@ export function LoginScreen({ onLogin }) {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-8">
-          <span className="text-primary font-bold text-xs tracking-[0.12em] uppercase">Ballistic WS</span>
+      {/* Subtle crosshair reticle decoration */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.025]">
+        <svg width="420" height="420" viewBox="0 0 420 420" fill="none">
+          <circle cx="210" cy="210" r="200" stroke="#FFDF00" strokeWidth="1"/>
+          <circle cx="210" cy="210" r="100" stroke="#FFDF00" strokeWidth="0.75"/>
+          <line x1="10" y1="210" x2="410" y2="210" stroke="#FFDF00" strokeWidth="0.75"/>
+          <line x1="210" y1="10" x2="210" y2="410" stroke="#FFDF00" strokeWidth="0.75"/>
+          <circle cx="210" cy="210" r="6" stroke="#FFDF00" strokeWidth="1.5"/>
+        </svg>
+      </div>
+
+      <div className="w-full max-w-[340px] relative">
+        {/* Wordmark */}
+        <div className="flex items-center gap-2 mb-10">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-primary shrink-0">
+            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.25"/>
+            <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.25"/>
+            <line x1="1" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.25"/>
+            <line x1="8" y1="1" x2="8" y2="15" stroke="currentColor" strokeWidth="1.25"/>
+          </svg>
+          <span className="text-[12px] font-bold tracking-[0.18em] uppercase text-foreground">Axon Ballistic</span>
         </div>
-        <h1 className="text-2xl font-bold text-foreground mb-1">Sign in</h1>
-        <p className="text-sm text-muted-foreground mb-8">Access restricted to authorized team members.</p>
+
+        <h1 className="text-[28px] font-bold tracking-tight text-foreground mb-1.5 leading-tight">Sign in</h1>
+        <p className="text-[13px] text-muted-foreground mb-8">Access restricted to authorized personnel.</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Email</label>
+            <label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Email</label>
             <input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
               autoFocus
-              className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none transition-colors"
+              className="w-full rounded-md border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/60 focus:outline-none transition-colors"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Password</label>
+            <label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Password</label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
-              className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none transition-colors"
+              className="w-full rounded-md border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/60 focus:outline-none transition-colors"
             />
           </div>
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-[13px] text-destructive">{error}</p>
           )}
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-primary text-black font-semibold text-sm disabled:opacity-50 cursor-pointer hover:bg-primary/90 transition-colors">
-            {loading ? 'Signing in…' : 'Sign in'}
+            className="w-full mt-1 py-2.5 rounded-md bg-primary text-black font-bold text-[13px] tracking-wide disabled:opacity-50 cursor-pointer hover:bg-primary/90 transition-colors">
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
       </div>
