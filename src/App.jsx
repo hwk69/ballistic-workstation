@@ -1768,7 +1768,7 @@ export default function App() {
               <X size={13} />
             </button>
           </div>
-          <div className="p-4">
+          <div className={key === 'rankings' ? '' : 'p-4'}>
             {renderWidgetContent(key)}
           </div>
         </div>
@@ -1930,8 +1930,8 @@ export default function App() {
           onError={setDbError} />
       );
       if (key === 'rankings') return (
-        <div className="flex gap-4">
-          <div className="flex-1 min-w-0"><VelRankingWidget sessions={cmpSessions} /></div>
+        <div className="flex">
+          <div className="flex-1 min-w-0 border-r border-border"><VelRankingWidget sessions={cmpSessions} /></div>
           <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>
         </div>
       );

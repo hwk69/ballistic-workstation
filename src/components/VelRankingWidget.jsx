@@ -1,90 +1,53 @@
 // src/components/VelRankingWidget.jsx
-const CHART_BG = '#111118';
-const WIN_COLOR = '#69db7c';
-
-export function VelRankingWidget({ sessions, style }) {
+export function VelRankingWidget({ sessions }) {
   if (!sessions || sessions.length === 0) return null;
 
   const sorted = [...sessions]
     .filter(s => s.stats && s.stats.meanV != null && !isNaN(s.stats.meanV))
     .sort((a, b) => b.stats.meanV - a.stats.meanV);
   if (sorted.length === 0) return null;
+
   const best = sorted[0].stats.meanV;
-  const worst = sorted[sorted.length - 1].stats.meanV;
-  const range = best - worst || 1;
   const single = sorted.length === 1;
 
   return (
-    <div style={{ background: CHART_BG, borderRadius: 8, padding: '14px 16px', ...style }}>
-      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 12 }}>
-        Mean FPS — higher is better
+    <div>
+      <div className="px-2.5 py-2 border-b border-border">
+        <span className="text-sm font-bold uppercase tracking-wide">Mean FPS</span>
+        <span className="text-[11px] text-muted-foreground ml-1.5">higher is better</span>
       </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {sorted.map((sess, i) => {
-          const isWinner = i === 0;
-          const barPct = single ? 100 : ((sess.stats.meanV - worst) / range) * 100;
-          const delta = best - sess.stats.meanV;
-          const dimOpacity = isWinner ? 1 : i === 1 ? 0.6 : 0.45;
-          const numSize = isWinner ? 22 : 18;
-          const color = sess.color;
-
-          return (
-            <div key={`${sess.name}-${i}`} style={{
-              padding: '9px 11px',
-              borderRadius: 6,
-              background: isWinner ? 'rgba(105,219,124,0.10)' : i === 1 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.015)',
-              border: isWinner ? '1px solid rgba(105,219,124,0.25)' : '1px solid rgba(255,255,255,0.05)',
-              boxShadow: isWinner ? '0 0 16px rgba(105,219,124,0.08)' : 'none',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: color,
-                    opacity: dimOpacity,
-                    flexShrink: 0,
-                  }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: `rgba(255,255,255,${dimOpacity * 0.8})`, fontFamily: 'ui-monospace,monospace' }}>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Session</th>
+            <th className="text-right px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">FPS</th>
+            {!single && <th className="text-right px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delta</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((sess, i) => {
+            const isBest = i === 0 && !single;
+            return (
+              <tr key={`${sess.name}-${i}`} className="border-b border-border odd:bg-secondary/30">
+                <td className="px-2.5 py-2.5 text-sm">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: sess.color }} />
                     {single ? 'This Session' : sess.name}
                   </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ fontSize: numSize, fontWeight: 900, color, opacity: dimOpacity, fontFamily: 'ui-monospace,monospace', lineHeight: 1 }}>
-                    {sess.stats.meanV.toFixed(1)}
-                  </span>
-                  {isWinner && !single && (
-                    <span style={{ fontSize: 9, fontWeight: 800, color: WIN_COLOR, letterSpacing: '0.08em' }}>fps ✦ BEST</span>
-                  )}
-                  {!isWinner && !single && (
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: 'ui-monospace,monospace' }}>
-                      −{delta.toFixed(1)}
-                    </span>
-                  )}
-                  {single && (
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em' }}>fps</span>
-                  )}
-                </div>
-              </div>
-              <div style={{ height: isWinner ? 8 : 6, borderRadius: 3, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%',
-                  width: `${barPct}%`,
-                  borderRadius: 3,
-                  background: color,
-                  opacity: isWinner ? 1 : dimOpacity * 0.5,
-                  transition: 'width 0.4s ease',
-                }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.15)' }}>bars show relative gap</span>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.15)', fontFamily: 'ui-monospace,monospace' }}>fps</span>
-      </div>
+                </td>
+                <td className="px-2.5 py-2.5 text-right font-mono font-semibold text-sm" style={isBest ? { color: sess.color } : undefined}>
+                  {sess.stats.meanV.toFixed(1)}{isBest ? ' ✦' : ''}
+                </td>
+                {!single && (
+                  <td className="px-2.5 py-2.5 text-right font-mono text-sm text-muted-foreground">
+                    {i === 0 ? '—' : `−${(best - sess.stats.meanV).toFixed(1)}`}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
