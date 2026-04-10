@@ -1060,23 +1060,78 @@ export default function App() {
   }, []);
   const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await db.saveSettings({ vars: nv }); setOpts(p => { const n = { ...p, [key]: [] }; db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message)); return n; }); setNewVarName(""); setAdding(false); };
   const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); db.saveSettings({ vars: n }).catch(err => setDbError('Var save failed: ' + err.message)); return n; }); };
-  const updateLog = async nl => { setLog(nl); await sv(SK, nl); };
   const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
   const saveEdit = () => { if (editIdx === null) return; const fps = parseFloat(editVal.fps), x = parseFloat(editVal.x), y = parseFloat(editVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => p.map((s, i) => i === editIdx ? { ...s, ...editVal, fps, x, y } : s)); setEditIdx(null); };
   const delShot = i => setShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
-  const finishSession = async () => { const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | "); const id = Date.now(); await updateLog([...log, { id, date: new Date().toISOString(), config: { ...cfg, sessionName: name }, shots: [...shots], stats: { ...stats } }]); setViewId(id); setPhase(P.RESULTS); };
+  const finishSession = async () => {
+    const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
+    try {
+      const saved = await db.saveSession({ config: { ...cfg, sessionName: name }, shots: [...shots] });
+      const entry = { ...saved, stats: calcStats(saved.shots) };
+      setLog(p => [entry, ...p]);
+      setViewId(saved.id);
+      setPhase(P.RESULTS);
+    } catch (err) {
+      setDbError('Failed to save session: ' + err.message);
+    }
+  };
   const newSession = () => { setPhase(P.SETUP); setShots([]); setCur({ fps: "", x: "", y: "", weight: "" }); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
-  const delSession = async id => updateLog(log.filter(s => s.id !== id));
-  const handleImport = async e => { const file = e.target.files?.[0]; if (!file) return; try { const data = JSON.parse(await file.text()); if (Array.isArray(data) && data.length) { await updateLog([...log, ...data]); alert("Imported " + data.length); } else alert("No sessions."); } catch (err) { alert("Error: " + err.message); } e.target.value = ""; };
+  const delSession = async id => {
+    try {
+      await db.deleteSession(id);
+      setLog(p => p.filter(s => s.id !== id));
+    } catch (err) {
+      setDbError('Failed to delete session: ' + err.message);
+    }
+  };
+  const handleImport = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (!Array.isArray(data) || !data.length) { setDbError('No sessions found in file.'); return; }
+      const saved = await Promise.all(data.map(s => db.saveSession({ config: s.config, shots: s.shots || [] })));
+      const entries = saved.map(s => ({ ...s, stats: calcStats(s.shots) }));
+      setLog(p => [...entries, ...p]);
+    } catch (err) {
+      setDbError('Import failed: ' + err.message);
+    }
+    e.target.value = "";
+  };
   const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); setEsNewShot({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" }); setEsShotEdit(null); setPhase(P.EDIT); };
-  const saveEditSession = async () => { const st = calcStats(esShots); const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | "); await updateLog(log.map(s => s.id === editSessionId ? { ...s, config: { ...esCfg, sessionName: name }, shots: [...esShots], stats: st } : s)); setViewId(editSessionId); setPhase(P.RESULTS); };
+  const saveEditSession = async () => {
+    const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | ");
+    try {
+      const saved = await db.updateSession(editSessionId, { config: { ...esCfg, sessionName: name }, shots: [...esShots] });
+      const entry = { ...saved, stats: calcStats(saved.shots) };
+      setLog(p => p.map(s => s.id === editSessionId ? entry : s));
+      setViewId(editSessionId);
+      setPhase(P.RESULTS);
+    } catch (err) {
+      setDbError('Failed to update session: ' + err.message);
+    }
+  };
   const esAddShot = () => { const fps = parseFloat(esNewShot.fps), x = parseFloat(esNewShot.x), y = parseFloat(esNewShot.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => [...p, { fps, x, y, weight: esNewShot.weight, serial: makeSerial(esCfg, p.length + 1, 0), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setEsNewShot(p => ({ fps: "", x: "", y: "", weight: p.weight })); };
   const esDelShot = i => setEsShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const esStartEdit = i => { setEsShotEdit(i); setEsShotEditVal({ ...esShots[i] }); };
   const esSaveEdit = () => { if (esShotEdit === null) return; const fps = parseFloat(esShotEditVal.fps), x = parseFloat(esShotEditVal.x), y = parseFloat(esShotEditVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => p.map((s, i) => i === esShotEdit ? { ...s, ...esShotEditVal, fps, x, y } : s)); setEsShotEdit(null); };
-  const continueSession = id => { const s = log.find(x => x.id === id); if (!s) return; setCfg({ ...s.config }); setShots(s.shots.map(sh => ({ ...sh }))); setCur({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" }); updateLog(log.filter(x => x.id !== id)); setPhase(P.FIRE); setTimeout(() => fpsRef.current?.focus(), 100); };
+  const continueSession = async id => {
+    const s = log.find(x => x.id === id);
+    if (!s) return;
+    setCfg({ ...s.config });
+    setShots(s.shots.map(sh => ({ ...sh })));
+    setCur({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" });
+    try {
+      await db.deleteSession(id);
+      setLog(p => p.filter(x => x.id !== id));
+    } catch (err) {
+      setDbError('Failed to continue session: ' + err.message);
+    }
+    setPhase(P.FIRE);
+    setTimeout(() => fpsRef.current?.focus(), 100);
+  };
   const viewed = log.find(s => s.id === viewId);
   const esStats = useMemo(() => calcStats(esShots), [esShots]);
 
