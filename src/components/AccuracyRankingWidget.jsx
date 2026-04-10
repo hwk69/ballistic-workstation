@@ -84,7 +84,7 @@ export function AccuracyRankingWidget({ sessions }) {
                   boxShadow: isWinner ? '0 0 6px rgba(105,219,124,0.8)' : 'none',
                 }} />
                 <span style={{ fontSize: 10, fontWeight: 700, color: `rgba(255,255,255,${dimOpacity * 0.8})`, fontFamily: 'ui-monospace,monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {single ? 'Session' : sess.name}
+                  {sess.name}
                 </span>
               </div>
 
