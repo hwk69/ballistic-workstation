@@ -10,6 +10,8 @@ import { GripVertical, Crosshair, BarChart2, History, X, Plus, Paperclip } from 
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
+import { VelRankingWidget } from './components/VelRankingWidget.jsx';
+import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -855,6 +857,12 @@ const WIDGETS = {
   shotTable:   { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
   attachments: { label: "Attachments", default: false, render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
     <AttachmentWidget session={s} onError={onError} />
+  )},
+  velRanking: { label: "Best Velocity", default: false, render: (s, _vs, st) => (
+    <VelRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
+  )},
+  accuracyRanking: { label: "Best Accuracy", default: false, render: (s, _vs, st) => (
+    <AccuracyRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
 };
 const DEF_LAYOUT = Object.keys(WIDGETS).filter(k => WIDGETS[k].default);
