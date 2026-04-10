@@ -1672,7 +1672,7 @@ export default function App() {
       return { ...sl, session: s, shots: vs, stats: s.stats };
     }).filter(Boolean);
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" } };
+    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, velRanking: { label: "Best Velocity" }, accuracyRanking: { label: "Best Accuracy" } };
 
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
@@ -2033,6 +2033,32 @@ export default function App() {
                       vars={vars}
                       preFilterSessionIds={resolved.map(r => r.session.id)}
                       onError={setDbError} />
+                  </div>
+                );
+                if (key === "velRanking") return (
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Velocity</span>
+                      <button onClick={() => toggleCmpWidget("velRanking")} title="Remove widget"
+                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <VelRankingWidget
+                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'Session', color: r.color, stats: r.stats }))} />
+                  </div>
+                );
+                if (key === "accuracyRanking") return (
+                  <div key={key} className="p-6 border-b border-border">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-foreground">Best Accuracy</span>
+                      <button onClick={() => toggleCmpWidget("accuracyRanking")} title="Remove widget"
+                        className="flex items-center justify-center size-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors cursor-pointer bg-transparent border-none">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <AccuracyRankingWidget
+                      sessions={resolved.map(r => ({ name: r.session.config.sessionName || 'Session', color: r.color, stats: r.stats }))} />
                   </div>
                 );
                 return null;
