@@ -3240,12 +3240,200 @@ export default function App() {
   }
 
   // ─── MATRIX COMPARE ──────────────────────────────────────────────────────────
-  if (phase === P.MATRIX) return (
-    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
-      <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-6">Matrix Compare</h1>
-      <p className="text-sm text-muted-foreground">Coming soon…</p>
-    </AppShell>
-  );
+  if (phase === P.MATRIX) {
+    // Build the grid data
+    const matrixVarOptions = vars.map(v => ({ key: v.key, label: v.label }));
+    const rowVar = matrixRowVar || matrixVarOptions[0]?.key;
+    const colVar = matrixColVar || matrixVarOptions.find(v => v.key !== rowVar)?.key;
+
+    // Collect all sessions that have both variables set
+    const matrixSessions = log.filter(s => s.config[rowVar] && s.config[colVar]);
+
+    // Extract unique row/column values
+    const smartSort = (a, b) => {
+      const na = parseFloat(a), nb = parseFloat(b);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return String(a).localeCompare(String(b));
+    };
+    const rowValues = [...new Set(matrixSessions.map(s => s.config[rowVar]))].sort(smartSort);
+    const colValues = [...new Set(matrixSessions.map(s => s.config[colVar]))].sort(smartSort);
+
+    // Build lookup: grid[rowVal][colVal] = [sessions]
+    const grid = {};
+    for (const rv of rowValues) {
+      grid[rv] = {};
+      for (const cv of colValues) {
+        grid[rv][cv] = matrixSessions.filter(s => s.config[rowVar] === rv && s.config[colVar] === cv);
+      }
+    }
+
+    // Determine available metrics from matched sessions
+    const anyHasXY = matrixSessions.some(s => s.stats?.hasXY);
+    const anyHasFps = matrixSessions.some(s => s.stats?.hasFps);
+    const metricOptions = [];
+    if (anyHasXY) {
+      metricOptions.push({ key: "cep", label: "CEP (50%)", dec: 3, unit: "in" });
+      metricOptions.push({ key: "r90", label: "R90", dec: 3, unit: "in" });
+      metricOptions.push({ key: "mr", label: "Mean Radius", dec: 3, unit: "in" });
+      metricOptions.push({ key: "es", label: "Ext. Spread", dec: 3, unit: "in" });
+      metricOptions.push({ key: "sdX", label: "SD X", dec: 3, unit: "in" });
+      metricOptions.push({ key: "sdY", label: "SD Y", dec: 3, unit: "in" });
+    }
+    if (anyHasFps) {
+      metricOptions.push({ key: "meanV", label: "Mean FPS", dec: 1, unit: "fps" });
+      metricOptions.push({ key: "sdV", label: "SD FPS", dec: 1, unit: "fps" });
+      metricOptions.push({ key: "esV", label: "ES FPS", dec: 1, unit: "fps" });
+    }
+    // Custom field metrics
+    const allFieldKeys = new Set();
+    const fieldDefs = {};
+    matrixSessions.forEach(s => {
+      const sf = s.config.fields || [];
+      sf.forEach(f => {
+        if (!allFieldKeys.has(f.key) && !["fps", "x", "y", "weight"].includes(f.key)) {
+          allFieldKeys.add(f.key);
+          fieldDefs[f.key] = f;
+        }
+      });
+    });
+    for (const [fk, f] of Object.entries(fieldDefs)) {
+      if (f.type === "number") metricOptions.push({ key: `fieldMean:${fk}`, label: `Mean ${f.label}`, dec: 2, unit: f.unit || "" });
+      if (f.type === "yesno") metricOptions.push({ key: `fieldPct:${fk}`, label: `${f.label} %`, dec: 0, unit: "%" });
+    }
+
+    // Default metric selection
+    const selMetric = matrixMetric && metricOptions.some(m => m.key === matrixMetric) ? matrixMetric : (metricOptions[0]?.key || null);
+    const metricDef = metricOptions.find(m => m.key === selMetric);
+
+    // Determine if lower is better for the selected metric
+    const LOWER_BETTER_KEYS = ["cep", "r90", "mr", "es", "sdX", "sdY", "sdR", "sdV", "esV"];
+    const isLowerBetter = LOWER_BETTER_KEYS.includes(selMetric);
+
+    // Compute cell values
+    const getCellValue = (sessions) => {
+      if (!sessions || sessions.length === 0) return null;
+      if (selMetric.startsWith("fieldMean:")) {
+        const fk = selMetric.replace("fieldMean:", "");
+        const vals = sessions.map(s => s.stats?.fieldStats?.[fk]?.mean).filter(v => v != null);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      }
+      if (selMetric.startsWith("fieldPct:")) {
+        const fk = selMetric.replace("fieldPct:", "");
+        const vals = sessions.map(s => s.stats?.fieldStats?.[fk]?.pct).filter(v => v != null);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      }
+      const vals = sessions.map(s => s.stats?.[selMetric]).filter(v => v != null && !isNaN(v));
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+
+    // Build cell data and collect all values for ranking
+    const cellData = {};
+    const allValues = [];
+    for (const rv of rowValues) {
+      cellData[rv] = {};
+      for (const cv of colValues) {
+        const sessions = grid[rv][cv];
+        const val = getCellValue(sessions);
+        cellData[rv][cv] = { value: val, count: sessions.length };
+        if (val != null) allValues.push(val);
+      }
+    }
+
+    // Rank values for color coding
+    const sorted = [...allValues].sort((a, b) => isLowerBetter ? a - b : b - a);
+    const getColor = (val) => {
+      if (val == null) return "rgba(255,255,255,0.03)";
+      const rank = sorted.indexOf(val);
+      const t = sorted.length > 1 ? rank / (sorted.length - 1) : 0;
+      const r = Math.round(34 + (239 - 34) * t);
+      const g = Math.round(197 + (68 - 197) * t);
+      const b = Math.round(94 + (68 - 94) * t);
+      return `rgba(${r},${g},${b},0.25)`;
+    };
+
+    // Format value for display
+    const fmtVal = (val) => {
+      if (val == null) return "—";
+      const dec = metricDef?.dec ?? 2;
+      const unit = metricDef?.unit || "";
+      return val.toFixed(dec) + (unit ? " " + unit : "");
+    };
+
+    return (
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+        <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-6">Matrix Compare</h1>
+
+        {/* Axis Picker */}
+        <div className="flex flex-wrap gap-4 mb-6 items-end">
+          <div>
+            <SecLabel className="mb-1.5">Row Variable</SecLabel>
+            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={rowVar || ""} onChange={e => { setMatrixRowVar(e.target.value); setMatrixDetail(null); }}>
+              {matrixVarOptions.map(v => <option key={v.key} value={v.key} disabled={v.key === colVar}>{v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <SecLabel className="mb-1.5">Column Variable</SecLabel>
+            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={colVar || ""} onChange={e => { setMatrixColVar(e.target.value); setMatrixDetail(null); }}>
+              {matrixVarOptions.filter(v => v.key !== rowVar).map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <SecLabel className="mb-1.5">Metric</SecLabel>
+            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={selMetric || ""} onChange={e => { setMatrixMetric(e.target.value); setMatrixDetail(null); }}>
+              {metricOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {matrixSessions.length === 0 ? (
+          <Empty icon={<span className="text-base">⊞</span>}>
+            <p className="text-sm text-muted-foreground">No sessions have both <strong>{matrixVarOptions.find(v => v.key === rowVar)?.label}</strong> and <strong>{matrixVarOptions.find(v => v.key === colVar)?.label}</strong> set.</p>
+          </Empty>
+        ) : (
+          <>
+            {/* Grid */}
+            <div className="overflow-x-auto mb-6">
+              <table className="border-collapse w-full">
+                <thead>
+                  <tr>
+                    <th className="p-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 text-left border border-border bg-card"></th>
+                    {colValues.map(cv => (
+                      <th key={cv} className="p-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 text-center border border-border bg-card min-w-[100px]">{cv}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowValues.map(rv => (
+                    <tr key={rv}>
+                      <td className="p-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 border border-border bg-card whitespace-nowrap">{rv}</td>
+                      {colValues.map(cv => {
+                        const cell = cellData[rv][cv];
+                        const isSelected = matrixDetail?.row === rv && matrixDetail?.col === cv;
+                        return (
+                          <td
+                            key={cv}
+                            className={`p-3 text-center border border-border cursor-pointer transition-all hover:ring-2 hover:ring-primary/40 ${isSelected ? "ring-2 ring-primary" : ""}`}
+                            style={{ background: getColor(cell.value) }}
+                            onClick={() => cell.count > 0 ? setMatrixDetail(isSelected ? null : { row: rv, col: cv }) : null}
+                          >
+                            <div className="text-sm font-semibold text-foreground">{fmtVal(cell.value)}</div>
+                            {cell.count > 1 && <div className="text-[10px] text-muted-foreground mt-0.5">{cell.count} sessions</div>}
+                            {cell.count === 0 && <div className="text-[10px] text-muted-foreground">—</div>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Placeholder for detail panel — Task 3 */}
+          </>
+        )}
+      </AppShell>
+    );
+  }
 
   // ─── LIBRARY ─────────────────────────────────────────────────────────────────
   if (phase === P.LIBRARY) return (
