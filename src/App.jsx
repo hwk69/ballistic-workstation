@@ -1095,7 +1095,7 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
 }
 
 // ─── Widget registry ──────────────────────────────────────────────────────────
-const WIDGETS = {
+const STATIC_WIDGETS = {
   dispersion: { label: "Shot Dispersion", default: true, requires: ["x", "y"], render: (s, vs, st, opts, toggle, setOpt) => (
     <>
       <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
@@ -1169,7 +1169,84 @@ const WIDGETS = {
     <AccuracyRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
 };
-const DEF_LAYOUT = Object.keys(WIDGETS).filter(k => WIDGETS[k].default);
+
+function buildWidgets(sessionFields) {
+  const widgets = { ...STATIC_WIDGETS };
+  if (!sessionFields) return widgets;
+
+  for (const f of sessionFields) {
+    if (["fps", "x", "y"].includes(f.key)) continue;
+    if (f.type === "text") continue;
+
+    const wKey = `custom_${f.key}`;
+
+    if (f.type === "number") {
+      const fieldKey = f.key, fieldLabel = f.label, fieldUnit = f.unit || "";
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts, toggle, setOpt) => (
+          <>
+            <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
+              <Toggle label="Tracking" on={opts.chartMode !== "histogram"} onToggle={() => setOpt("chartMode", opts.chartMode === "histogram" ? "tracking" : "histogram")} />
+              <ColorPicker color={opts.color || G} onChange={c => setOpt("color", c)} />
+            </div>
+            <AutoSizeChart render={(w) => (
+              <NumberFieldChart
+                shots={vs} fieldKey={fieldKey} label={fieldLabel}
+                unit={fieldUnit} width={w - 8} color={opts.color || G}
+                mode={opts.chartMode || "tracking"}
+                onModeChange={m => setOpt("chartMode", m)}
+              />
+            )} />
+          </>
+        ),
+      };
+    }
+
+    if (f.type === "yesno") {
+      const fieldKey = f.key, fieldLabel = f.label;
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts) => (
+          <AutoSizeChart render={(w) => (
+            <DonutChart
+              yesCount={st.fieldStats?.[fieldKey]?.yes || 0}
+              noCount={(st.fieldStats?.[fieldKey]?.total || 0) - (st.fieldStats?.[fieldKey]?.yes || 0)}
+              total={st.fieldStats?.[fieldKey]?.total || 0}
+              label={fieldLabel} width={w - 8} color={opts.color || G}
+            />
+          )} />
+        ),
+      };
+    }
+
+    if (f.type === "dropdown") {
+      const fieldKey = f.key, fieldLabel = f.label;
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts) => (
+          <AutoSizeChart render={(w) => (
+            <FieldBarChart
+              counts={st.fieldStats?.[fieldKey]?.counts || {}}
+              total={st.fieldStats?.[fieldKey]?.total || 0}
+              label={fieldLabel} width={w - 8} color={opts.color || G}
+            />
+          )} />
+        ),
+      };
+    }
+  }
+
+  return widgets;
+}
+
+const DEF_LAYOUT = Object.keys(STATIC_WIDGETS).filter(k => STATIC_WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
 const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6 };
@@ -2245,7 +2322,8 @@ export default function App() {
     const s = viewed;
     const sf = s.config.fields || fields;
     const sfKeys = new Set(sf.map(f => f.key));
-    const availableWidgets = Object.keys(WIDGETS).filter(k => WIDGETS[k].requires.every(r => sfKeys.has(r)));
+    const widgets = buildWidgets(sf);
+    const availableWidgets = Object.keys(widgets).filter(k => widgets[k].requires.every(r => sfKeys.has(r)));
     const activeLayout = layout.filter(k => availableWidgets.includes(k));
     const vs = s.shots.filter(sh => {
       const d = sh.data || sh;
@@ -2286,8 +2364,8 @@ export default function App() {
           {/* Widget grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {activeLayout.map((key, idx) => {
-              const wg = WIDGETS[key]; if (!wg) return null;
-              const fullWidth = key === "shotTable" || key === "attachments";
+              const wg = widgets[key]; if (!wg) return null;
+              const fullWidth = key === "shotTable" || key === "attachments" || key.startsWith("custom_");
               return (
                 <div key={key} className={cn(
                   "p-5 border-b border-border",
@@ -2309,7 +2387,7 @@ export default function App() {
               <div className="p-5 border-b border-border lg:col-span-2 flex justify-center">
                 <WidgetAdder
                   available={availableWidgets.filter(k => !activeLayout.includes(k))}
-                  labels={Object.fromEntries(availableWidgets.map(k => [k, WIDGETS[k].label]))}
+                  labels={Object.fromEntries(availableWidgets.map(k => [k, widgets[k].label]))}
                   onAdd={toggleWidget} />
               </div>
             )}
