@@ -60,6 +60,12 @@ function migrateLayout(items) {
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
 const DEF_OPTS={rifleRate:["1-6","1-8","1-10","1-12","1-14","1-16","1-18"],sleeveType:["Slotted PLA","Not Slotted PLA","ABS","Ribbed","TPU","Delrin + O ring","Brass (14.65)","Brass (14.75)","Brass (14.80)","Brass (14.65) Reused","Brass (14.75) Reused","S-13 14.80 od","S-16 14.80 od","S-16 14.80 od (Reused)","S-17 14.85 od","S-21 14.90 od"],tailType:["Straight","Tapered","Steep Taper","Round","Biridge","Triridge","Indented"],combustionChamber:["Short (1.5)","Long (1.5)"],load22:["Red","Purple"]};
 const DEF_VARS=[{key:"rifleRate",label:"Rifle Rate",core:true},{key:"sleeveType",label:"Sleeve Type",core:true},{key:"tailType",label:"Tail Type",core:true},{key:"combustionChamber",label:"Combustion Chamber",core:true},{key:"load22",label:".22 Load",core:true}];
+const DEFAULT_FIELDS = [
+  { key: "fps", label: "FPS", type: "number", required: true, options: [], unit: "fps" },
+  { key: "x", label: "X", type: "number", required: true, options: [], unit: "in" },
+  { key: "y", label: "Y", type: "number", required: true, options: [], unit: "in" },
+  { key: "weight", label: "Weight", type: "number", required: false, options: [], unit: "g" },
+];
 const ALL_METRICS=[["CEP (50%)","cep",3,true],["R90","r90",3,true],["Mean Radius","mr",3,true],["Ext. Spread","es",3,true],["SD X","sdX",3,true],["SD Y","sdY",3,true],["SD Radial","sdR",3,false],["MPI X","mpiX",3,false],["MPI Y","mpiY",3,false],["Mean FPS","meanV",1,true],["SD FPS","sdV",1,true],["ES FPS","esV",1,true]];
 const LOWER_BETTER=["CEP (50%)","R90","Mean Radius","Ext. Spread","SD X","SD Y","SD Radial","SD FPS","ES FPS"];
 const OC = { cep: "#3b82f6", r90: "#a855f7", ellipse: "#06b6d4", mpi: "#22c55e" }; // overlay colors
@@ -88,22 +94,101 @@ const METRIC_INFO = {
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
 const std=a=>{if(a.length<2)return 0;const m=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1));};
 const rad=(x,y)=>Math.sqrt(x*x+y*y);
-function calcStats(shots){
-  const v=shots.filter(s=>!isNaN(s.fps)&&!isNaN(s.x)&&!isNaN(s.y));
-  if(v.length<2)return{cep:0,r90:0,mpiX:0,mpiY:0,mr:0,es:0,sdR:0,sdV:0,meanV:0,esV:0,covEllipse:null,n:v.length,sdX:0,sdY:0};
-  const xs=v.map(s=>s.x),ys=v.map(s=>s.y),vs=v.map(s=>s.fps),mpiX=mean(xs),mpiY=mean(ys);
-  const radii=v.map(s=>rad(s.x-mpiX,s.y-mpiY)),sorted=[...radii].sort((a,b)=>a-b);
-  const cep=sorted[Math.floor(sorted.length*.5)]||0,r90=sorted[Math.min(Math.floor(sorted.length*.9),sorted.length-1)]||0;
-  const mr=mean(radii),es=Math.max(...radii)*2,sdR=std(radii),sdV=std(vs),meanV=mean(vs),esV=vs.length?Math.max(...vs)-Math.min(...vs):0,sdX=std(xs),sdY=std(ys);
-  let covEllipse=null;
-  if(v.length>=3){const cx=xs.map(q=>q-mpiX),cy=ys.map(q=>q-mpiY),n=cx.length,sxx=cx.reduce((s2,q)=>s2+q*q,0)/(n-1),syy=cy.reduce((s2,q)=>s2+q*q,0)/(n-1),sxy=cx.reduce((s2,q,i)=>s2+q*cy[i],0)/(n-1),t=Math.atan2(2*sxy,sxx-syy)/2,k=2.146,a2=(sxx+syy)/2+Math.sqrt(((sxx-syy)/2)**2+sxy**2),b2=(sxx+syy)/2-Math.sqrt(((sxx-syy)/2)**2+sxy**2);covEllipse={rx:Math.sqrt(Math.max(a2,.001)*k),ry:Math.sqrt(Math.max(b2,.001)*k),angle:t*180/Math.PI};}
-  return{cep,r90,mpiX,mpiY,mr,es,sdR,sdV,meanV,esV,covEllipse,n:v.length,sdX,sdY};
+function calcStats(shots, sessionFields) {
+  // Legacy accuracy stats — only when x + y fields present
+  const hasXY = !sessionFields || (sessionFields.some(f => f.key === "x") && sessionFields.some(f => f.key === "y"));
+  const hasFps = !sessionFields || sessionFields.some(f => f.key === "fps");
+  const v = hasXY
+    ? shots.filter(s => { const d = s.data || s; return !isNaN(d.x) && !isNaN(d.y); })
+    : shots;
+  let cep=0,r90=0,mpiX=0,mpiY=0,mr=0,es=0,sdR=0,covEllipse=null,sdX=0,sdY=0;
+  if (hasXY && v.length >= 2) {
+    const xs=v.map(s=>(s.data||s).x),ys=v.map(s=>(s.data||s).y);
+    mpiX=mean(xs); mpiY=mean(ys);
+    const radii=v.map(s=>rad((s.data||s).x-mpiX,(s.data||s).y-mpiY)),sorted=[...radii].sort((a,b)=>a-b);
+    cep=sorted[Math.floor(sorted.length*.5)]||0;
+    r90=sorted[Math.min(Math.floor(sorted.length*.9),sorted.length-1)]||0;
+    mr=mean(radii); es=Math.max(...radii)*2; sdR=std(radii); sdX=std(xs); sdY=std(ys);
+    if(v.length>=3){const cx=xs.map(q=>q-mpiX),cy=ys.map(q=>q-mpiY),n=cx.length,sxx=cx.reduce((s2,q)=>s2+q*q,0)/(n-1),syy=cy.reduce((s2,q)=>s2+q*q,0)/(n-1),sxy=cx.reduce((s2,q,i)=>s2+q*cy[i],0)/(n-1),t=Math.atan2(2*sxy,sxx-syy)/2,k=2.146,a2=(sxx+syy)/2+Math.sqrt(((sxx-syy)/2)**2+sxy**2),b2=(sxx+syy)/2-Math.sqrt(((sxx-syy)/2)**2+sxy**2);covEllipse={rx:Math.sqrt(Math.max(a2,.001)*k),ry:Math.sqrt(Math.max(b2,.001)*k),angle:t*180/Math.PI};}
+  }
+  // Velocity stats — only when fps field present
+  let sdV=0,meanV=0,esV=0;
+  if (hasFps) {
+    const vs=shots.map(s=>(s.data||s).fps).filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+    if(vs.length>=2){sdV=std(vs);meanV=mean(vs);esV=Math.max(...vs)-Math.min(...vs);}
+    else if(vs.length===1){meanV=vs[0];}
+  }
+  // Dynamic per-field stats
+  const fieldStats = {};
+  if (sessionFields) {
+    for (const f of sessionFields) {
+      if (f.type === "number" && !["x","y","fps"].includes(f.key)) {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined && !isNaN(v));
+        fieldStats[f.key] = {
+          type: "number", label: f.label, unit: f.unit || "",
+          mean: vals.length >= 1 ? mean(vals) : null,
+          sd: vals.length >= 2 ? std(vals) : null,
+          es: vals.length >= 2 ? Math.max(...vals) - Math.min(...vals) : null,
+          min: vals.length >= 1 ? Math.min(...vals) : null,
+          max: vals.length >= 1 ? Math.max(...vals) : null,
+          n: vals.length,
+        };
+      } else if (f.type === "yesno") {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+        const yesCount = vals.filter(v => v === true).length;
+        fieldStats[f.key] = {
+          type: "yesno", label: f.label,
+          yes: yesCount, no: vals.length - yesCount, total: vals.length,
+          pct: vals.length > 0 ? Math.round(yesCount / vals.length * 100) : 0,
+        };
+      } else if (f.type === "dropdown") {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+        const counts = {};
+        for (const v of vals) counts[v] = (counts[v] || 0) + 1;
+        fieldStats[f.key] = { type: "dropdown", label: f.label, counts, total: vals.length };
+      }
+      // text fields: no stats
+    }
+  }
+  return { cep, r90, mpiX, mpiY, mr, es, sdR, sdV, meanV, esV, covEllipse, n: v.length, sdX, sdY, fieldStats, hasXY, hasFps };
 }
 function makeSerial(cfg,num,offset){return`SP1-03 ${cfg.rifleRate||""}RR ${String(offset+num).padStart(2,"0")}`;}
 function esc(v){const s=String(v??"");return s.includes(",")||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;}
 function rowC(a){return a.map(esc).join(",");}
 function dl(t,fn,m){const b=new Blob([t],{type:m}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);}
-function exportMasterCsv(log,vars){const h=["Serial #",...vars.map(v=>v.label),"X (in)","Y (in)","Chrono FPS","Weight (g)","Time Stamp","Date","Notes"];const rows=[rowC(h)];log.forEach(s=>{s.shots.forEach(sh=>{rows.push(rowC([sh.serial,...vars.map(v=>s.config[v.key]||""),sh.x,sh.y,sh.fps,sh.weight||"",sh.timestamp||"",s.config.date||"",s.config.notes||""]));});});dl(rows.join("\n"),"Ballistic_Master.csv","text/csv");}
+function exportMasterCsv(log,vars){
+  // Build union of all fields across sessions
+  const allFieldKeys = [];
+  const allFieldLabels = {};
+  log.forEach(s => {
+    const sf = s.config.fields || DEFAULT_FIELDS;
+    sf.forEach(f => {
+      if (!allFieldKeys.includes(f.key)) {
+        allFieldKeys.push(f.key);
+        allFieldLabels[f.key] = f.unit ? `${f.label} (${f.unit})` : f.label;
+      }
+    });
+  });
+  const h=["Serial #",...vars.map(v=>v.label),...allFieldKeys.map(k=>allFieldLabels[k]),"Time Stamp","Date","Notes"];
+  const rows=[rowC(h)];
+  log.forEach(s=>{
+    s.shots.forEach(sh=>{
+      const d = sh.data || sh;
+      rows.push(rowC([
+        sh.serial,
+        ...vars.map(v=>s.config[v.key]||""),
+        ...allFieldKeys.map(k => {
+          const val = d[k];
+          if (val === true) return "Yes";
+          if (val === false) return "No";
+          return val ?? "";
+        }),
+        sh.timestamp||"",s.config.date||"",s.config.notes||""
+      ]));
+    });
+  });
+  dl(rows.join("\n"),"Ballistic_Master.csv","text/csv");
+}
 function exportJson(log){dl(JSON.stringify(log,null,2),"Ballistic_All.json","application/json");}
 function countOverlaps(shots){const m={};shots.forEach(s=>{const k=`${s.x},${s.y}`;m[k]=(m[k]||0)+1;});return m;}
 
@@ -733,20 +818,22 @@ function XYTrack({ shots, width = 360 }) {
   return <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />;
 }
 
-function ShotTable({ shots }) {
-  const hdrs = ["#","Serial","FPS","X","Y","Wt","Rad","Time"];
-  const right = ["FPS","X","Y","Wt","Rad"];
+function ShotTable({ shots, session }) {
+  const sf = session?.config?.fields || DEFAULT_FIELDS;
   return (
     <div className="overflow-auto max-h-52">
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="border-b border-border">
-            {hdrs.map(h => (
-              <th key={h} className={cn(
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+            {sf.map(f => (
+              <th key={f.key} className={cn(
                 "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                right.includes(h) ? "text-right" : "text-left"
-              )}>{h}</th>
+                f.type === "number" ? "text-right" : "text-left"
+              )}>{f.label}</th>
             ))}
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
           </tr>
         </thead>
         <tbody>
@@ -754,11 +841,19 @@ function ShotTable({ shots }) {
             <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40">
               <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
               <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.fps}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.x}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.y}</td>
-              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{s.weight || "—"}</td>
-              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
+              {sf.map(f => {
+                const val = (s.data || s)[f.key];
+                let display = "";
+                if (val === true) display = "Yes";
+                else if (val === false) display = "No";
+                else if (val !== null && val !== undefined) display = String(val);
+                return (
+                  <td key={f.key} className={cn(
+                    "px-2.5 py-1.5",
+                    f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                  )}>{display || "—"}</td>
+                );
+              })}
               <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
             </tr>
           ))}
@@ -832,7 +927,7 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
 
 // ─── Widget registry ──────────────────────────────────────────────────────────
 const WIDGETS = {
-  dispersion: { label: "Shot Dispersion", default: true, render: (s, vs, st, opts, toggle, setOpt) => (
+  dispersion: { label: "Shot Dispersion", default: true, requires: ["x", "y"], render: (s, vs, st, opts, toggle, setOpt) => (
     <>
       <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
         {[["showEllipse","Ellipse",OC.ellipse],["showGrid","Grid"]].map(([k,l,c]) => (
@@ -843,45 +938,65 @@ const WIDGETS = {
       <AutoSizeChart render={(w, h) => <DispersionChart shots={vs} stats={st} size={Math.min(w, h) - 12} opts={opts} color={opts.color || G} />} />
     </>
   )},
-  velHist:    { label: "Velocity Distribution", default: true, render: (s, vs, st, opts) => (
+  velHist:    { label: "Velocity Distribution", default: true, requires: ["fps"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <VelHist shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  velRad:     { label: "FPS vs Radial", default: true, render: (s, vs) => (
+  velRad:     { label: "FPS vs Radial", default: true, requires: ["fps", "x", "y"], render: (s, vs) => (
     <AutoSizeChart render={(w) => <VelRad shots={vs} width={w - 8} />} />
   )},
-  metrics:    { label: "Key Metrics", default: true, render: (s, vs, st, opts, toggle) => {
-    const OMAP = { "CEP": "showCep", "R90": "showR90", "MPI X/Y": "showMpi" };
+  metrics:    { label: "Key Metrics", default: true, requires: [], render: (s, vs, st, opts, toggle) => {
+    const sb = (k, v, g, ac, onClick, active) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} onClick={onClick} active={active} />;
     return (
       <>
-      <p className="text-[11px] text-muted-foreground/60 mb-2 mt-0">Click CEP, R90, or MPI to toggle overlays on the chart.</p>
+      {st.hasXY && <p className="text-[11px] text-muted-foreground/60 mb-2 mt-0">Click CEP, R90, or MPI to toggle overlays on the chart.</p>}
       <div className="grid grid-cols-2 gap-2">
-        {[["CEP",st.cep.toFixed(2)+" in",0,OC.cep],["R90",st.r90.toFixed(2)+" in",0,OC.r90],["SD X",st.sdX.toFixed(2)],["SD Y",st.sdY.toFixed(2)],["Mean FPS",st.meanV.toFixed(1),0,opts.color||G],["SD FPS",st.sdV.toFixed(1)],["ES FPS",st.esV.toFixed(1)],["Mean Rad",st.mr.toFixed(2)],["MPI X/Y",st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1),0,OC.mpi],["Ext Spread",st.es.toFixed(2)]].map(([k,v,g,ac]) => {
-          const ok = OMAP[k];
-          return <SB key={k} label={k} value={v} gold={g} accentColor={ac}
-            onClick={ok && toggle ? () => toggle(ok) : undefined}
-            active={ok ? opts[ok] : undefined} />;
+        {st.hasXY && <>
+          {sb("CEP", st.cep.toFixed(2)+" in", 0, OC.cep, toggle ? () => toggle("showCep") : undefined, opts.showCep)}
+          {sb("R90", st.r90.toFixed(2)+" in", 0, OC.r90, toggle ? () => toggle("showR90") : undefined, opts.showR90)}
+          {sb("SD X", st.sdX.toFixed(2))}
+          {sb("SD Y", st.sdY.toFixed(2))}
+          {sb("MPI X/Y", st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1), 0, OC.mpi, toggle ? () => toggle("showMpi") : undefined, opts.showMpi)}
+          {sb("Mean Rad", st.mr.toFixed(2))}
+          {sb("Ext Spread", st.es.toFixed(2))}
+        </>}
+        {st.hasFps && <>
+          {sb("Mean FPS", st.meanV.toFixed(1), 0, opts.color || G)}
+          {sb("SD FPS", st.sdV.toFixed(1))}
+          {sb("ES FPS", st.esV.toFixed(1))}
+        </>}
+        {st.fieldStats && Object.entries(st.fieldStats).flatMap(([key, fs]) => {
+          if (fs.type === "number") return [
+            fs.mean !== null ? sb(`Mean ${fs.label}`, `${fs.mean.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+            fs.sd !== null ? sb(`SD ${fs.label}`, `${fs.sd.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+            fs.es !== null ? sb(`ES ${fs.label}`, `${fs.es.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+          ].filter(Boolean);
+          if (fs.type === "yesno") return [sb(fs.label, `${fs.yes}/${fs.total} (${fs.pct}%)`)];
+          if (fs.type === "dropdown") return Object.entries(fs.counts).map(([opt, cnt]) =>
+            sb(`${fs.label}: ${opt}`, `${cnt}/${fs.total}`)
+          );
+          return [];
         })}
       </div>
       </>
     );
   }},
-  radTrack:   { label: "Radial Tracking", default: false, render: (s, vs, st, opts) => (
+  radTrack:   { label: "Radial Tracking", default: false, requires: ["x", "y"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <RadialTrack shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  fpsTrack:   { label: "FPS Tracking", default: false, render: (s, vs, st, opts) => (
+  fpsTrack:   { label: "FPS Tracking", default: false, requires: ["fps"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <FpsTrack shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  xyTrack:    { label: "X/Y Deviation", default: false, render: (s, vs) => (
+  xyTrack:    { label: "X/Y Deviation", default: false, requires: ["x", "y"], render: (s, vs) => (
     <AutoSizeChart render={(w) => <XYTrack shots={vs} width={w - 8} />} />
   )},
-  shotTable:   { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
-  attachments: { label: "Attachments", default: false, render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
+  shotTable:   { label: "Shot Table", default: false, requires: [], render: (s, vs) => <ShotTable shots={vs} session={s} /> },
+  attachments: { label: "Attachments", default: false, requires: [], render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
     <AttachmentWidget session={s} onError={onError} />
   )},
-  velRanking: { label: "Best Velocity", default: false, render: (s, _vs, st) => (
+  velRanking: { label: "Best Velocity", default: false, requires: ["fps"], render: (s, _vs, st) => (
     <VelRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
-  accuracyRanking: { label: "Best Accuracy", default: false, render: (s, _vs, st) => (
+  accuracyRanking: { label: "Best Accuracy", default: false, requires: ["x", "y"], render: (s, _vs, st) => (
     <AccuracyRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
 };
@@ -938,6 +1053,227 @@ function TblInput({ value, onChange }) {
   return (
     <input type="number" value={value ?? ""} onChange={onChange}
       className="w-full rounded bg-secondary border border-border px-1.5 py-0.5 text-right text-xs text-foreground font-mono" />
+  );
+}
+
+// ─── Measurement Fields Card ────────────────────────────────────────────────
+function MeasurementFieldsCard({ fields, onUpdate }) {
+  const [adding, setAdding] = useState(false);
+  const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
+  const [newOption, setNewOption] = useState("");
+  const [customName, setCustomName] = useState(false);
+
+  const typeLabels = { number: "Number", yesno: "Yes / No", text: "Text", dropdown: "Dropdown" };
+
+  // Standard field presets — selecting one auto-fills name, type, required, unit
+  const PRESETS = [
+    { key: "fps", label: "FPS", type: "number", required: true, unit: "fps" },
+    { key: "x", label: "X", type: "number", required: true, unit: "in" },
+    { key: "y", label: "Y", type: "number", required: true, unit: "in" },
+    { key: "weight", label: "Weight", type: "number", required: false, unit: "g" },
+  ];
+  const availablePresets = PRESETS.filter(p => !fields.some(f => f.key === p.key));
+
+  const selectPreset = (key) => {
+    if (key === "__custom__") {
+      setCustomName(true);
+      setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
+      return;
+    }
+    const p = PRESETS.find(x => x.key === key);
+    if (p) {
+      setCustomName(false);
+      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit, options: [] });
+    }
+  };
+
+  const addField = () => {
+    const name = newField.name.trim();
+    if (!name) return;
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+    if (fields.find(f => f.key === key)) return;
+    const field = {
+      key,
+      label: name,
+      type: newField.type,
+      required: newField.required,
+      options: newField.type === "dropdown" ? newField.options : [],
+      unit: newField.type === "number" ? newField.unit.trim() : "",
+    };
+    onUpdate([...fields, field]);
+    setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
+    setNewOption("");
+    setCustomName(false);
+    setAdding(false);
+  };
+
+  const removeField = (key) => {
+    onUpdate(fields.filter(f => f.key !== key));
+  };
+
+  const addDropdownOption = () => {
+    const opt = newOption.trim();
+    if (!opt || newField.options.includes(opt)) return;
+    setNewField(p => ({ ...p, options: [...p.options, opt] }));
+    setNewOption("");
+  };
+
+  const removeDropdownOption = (opt) => {
+    setNewField(p => ({ ...p, options: p.options.filter(o => o !== opt) }));
+  };
+
+  return (
+    <CardSection title="Measurement Fields" className="mb-4">
+      <p className="text-xs text-muted-foreground mb-3">
+        Define what data gets recorded per shot. These fields appear on the Fire page.
+      </p>
+
+      {/* Field list */}
+      {fields.length > 0 ? (
+        <div className="flex flex-col gap-2 mb-4">
+          {fields.map(f => (
+            <div key={f.key} className="flex items-center gap-2 bg-secondary border border-border rounded-lg px-3 py-2">
+              <span className="text-sm font-medium text-foreground flex-1">{f.label}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">
+                {typeLabels[f.type] || f.type}
+              </span>
+              {f.unit && (
+                <span className="text-[10px] text-muted-foreground">{f.unit}</span>
+              )}
+              {f.required && (
+                <span className="text-[10px] font-bold text-primary">REQ</span>
+              )}
+              <button
+                onClick={() => removeField(f.key)}
+                className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer bg-transparent border-none leading-none text-base ml-1"
+                aria-label={`Remove ${f.label}`}>×</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground/60 italic mb-4 py-3 text-center border border-dashed border-border rounded-lg">
+          No measurement fields configured. Add at least one field before starting a session.
+        </div>
+      )}
+
+      {/* Add field form */}
+      {adding ? (
+        <div className="bg-background border border-border rounded-lg p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Field Name</label>
+              {!customName ? (
+                <select
+                  value={newField.name ? PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
+                  onChange={e => selectPreset(e.target.value)}
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                  autoFocus>
+                  <option value="">— Select field —</option>
+                  {availablePresets.map(p => (
+                    <option key={p.key} value={p.key}>{p.label} ({p.unit})</option>
+                  ))}
+                  <option value="__custom__">Custom…</option>
+                </select>
+              ) : (
+                <input
+                  value={newField.name}
+                  onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
+                  onKeyDown={e => { if (e.key === "Enter") addField(); if (e.key === "Escape") { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setCustomName(false); } }}
+                  placeholder="e.g. Hole Size"
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                  autoFocus />
+              )}
+            </div>
+            <div className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</label>
+              <select
+                value={newField.type}
+                onChange={e => setNewField(p => ({ ...p, type: e.target.value }))}
+                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary">
+                <option value="number">Number</option>
+                <option value="yesno">Yes / No</option>
+                <option value="text">Text</option>
+                <option value="dropdown">Dropdown</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Number-specific: unit */}
+          {newField.type === "number" && (
+            <div className="flex flex-col mb-3">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Unit (optional)</label>
+              <input
+                value={newField.unit}
+                onChange={e => setNewField(p => ({ ...p, unit: e.target.value }))}
+                placeholder="e.g. mm, in, fps"
+                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary max-w-[200px]" />
+            </div>
+          )}
+
+          {/* Dropdown-specific: options */}
+          {newField.type === "dropdown" && (
+            <div className="flex flex-col mb-3">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options</label>
+              {newField.options.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {newField.options.map(opt => (
+                    <span key={opt} className="inline-flex items-center gap-1 bg-secondary border border-border rounded px-2 py-0.5 text-xs">
+                      {opt}
+                      <button onClick={() => removeDropdownOption(opt)}
+                        className="text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none text-xs leading-none">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <input
+                  value={newOption}
+                  onChange={e => setNewOption(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addDropdownOption(); } }}
+                  placeholder="Add an option…"
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary max-w-[220px]" />
+                <button onClick={addDropdownOption}
+                  disabled={!newOption.trim()}
+                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer border-none",
+                    newOption.trim() ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground opacity-50 cursor-not-allowed"
+                  )}>Add</button>
+              </div>
+            </div>
+          )}
+
+          {/* Required checkbox */}
+          <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={newField.required}
+              onChange={e => setNewField(p => ({ ...p, required: e.target.checked }))}
+              className="rounded border-border" />
+            <span className="text-xs text-muted-foreground">Required field</span>
+          </label>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button onClick={addField}
+              disabled={!newField.name.trim() || (newField.type === "dropdown" && newField.options.length === 0)}
+              className={cn("px-4 py-2 rounded-md text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-none",
+                newField.name.trim() && !(newField.type === "dropdown" && newField.options.length === 0)
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground opacity-50 cursor-not-allowed"
+              )}>Add Field</button>
+            <button onClick={() => { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setNewOption(""); setCustomName(false); }}
+              className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)}
+          className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
+          style={{ color: "#6b6b7e" }}
+          onMouseEnter={e => e.target.style.color = "#111118"}
+          onMouseLeave={e => e.target.style.color = "#6b6b7e"}>
+          + Add Field
+        </button>
+      )}
+    </CardSection>
   );
 }
 
@@ -1059,6 +1395,7 @@ export default function App() {
   const [log, setLog]       = useState([]);
   const [opts, setOpts]     = useState(DEF_OPTS);
   const [vars, setVars]     = useState(DEF_VARS);
+  const [fields, setFields] = useState(DEFAULT_FIELDS);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
@@ -1067,7 +1404,7 @@ export default function App() {
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
-  const [cur, setCur]       = useState({ fps: "", x: "", y: "", weight: "" });
+  const [cur, setCur]       = useState(() => Object.fromEntries(fields.map(f => [f.key, ""])));
   const [editIdx, setEditIdx] = useState(null);
   const [editVal, setEditVal] = useState({});
   const [esCfg, setEsCfg]   = useState({});
@@ -1131,6 +1468,7 @@ export default function App() {
         });
       }
       if (settings.vars?.length) setVars(settings.vars);
+      if (settings.fields?.length) setFields(settings.fields);
       if (settings.layout) {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
@@ -1151,7 +1489,11 @@ export default function App() {
         }
         if (settings.layout.cmpSplit) setCmpSplit(settings.layout.cmpSplit);
       }
-      setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
+      setLog(sessions.map(s => ({
+        ...s,
+        config: { ...s.config, fields: s.config.fields || DEFAULT_FIELDS },
+        stats: calcStats(s.shots, s.config.fields),
+      })));
       setSavedComparisons(comparisons);
       setHasAttachments(allAtts.length > 0);
     } catch (err) {
@@ -1256,8 +1598,16 @@ export default function App() {
 
 
   const total = parseInt(cfg.shotCount) || 0;
-  const validShots = useMemo(() => shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y)), [shots]);
-  const stats = useMemo(() => calcStats(shots), [shots]);
+  const validShots = useMemo(() => {
+    const sessionFields = cfg.fields || fields;
+    const requiredNumeric = sessionFields.filter(f => f.required && f.type === "number").map(f => f.key);
+    if (requiredNumeric.length === 0) return shots;
+    return shots.filter(s => {
+      const d = s.data || s;
+      return requiredNumeric.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+    });
+  }, [shots, cfg.fields, fields]);
+  const stats = useMemo(() => calcStats(shots, cfg.fields || fields), [shots, cfg.fields, fields]);
   const addOption = useCallback(async (key, val) => {
     setOpts(p => {
       const n = { ...p, [key]: [...(p[key] || []), val] };
@@ -1267,7 +1617,53 @@ export default function App() {
   }, []);
   const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await db.saveSettings({ vars: nv }); setOpts(p => { const n = { ...p, [key]: [] }; db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message)); return n; }); setNewVarName(""); setAdding(false); };
   const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); db.saveSettings({ vars: n }).catch(err => setDbError('Var save failed: ' + err.message)); return n; }); };
-  const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
+  const updateFields = useCallback(async (newFields) => {
+    setFields(newFields);
+    try { await db.saveSettings({ fields: newFields }); } catch (err) { setDbError('Fields save failed: ' + err.message); }
+  }, []);
+  const addShot = useCallback(() => {
+    // Validate required fields
+    const sessionFields = cfg.fields || fields;
+    for (const f of sessionFields) {
+      if (f.required) {
+        if (f.type === "number" && isNaN(parseFloat(cur[f.key]))) return;
+        if (f.type !== "number" && !cur[f.key] && cur[f.key] !== false) return;
+      }
+    }
+    // Build data object
+    const data = {};
+    for (const f of sessionFields) {
+      const v = cur[f.key];
+      if (f.type === "number") {
+        data[f.key] = v !== "" ? parseFloat(v) : null;
+      } else if (f.type === "yesno") {
+        data[f.key] = v === "yes" ? true : v === "no" ? false : null;
+      } else {
+        data[f.key] = v || null;
+      }
+    }
+    // Build shot with legacy fields for backwards compat
+    const shot = {
+      fps: data.fps ?? null,
+      x: data.x ?? null,
+      y: data.y ?? null,
+      weight: data.weight ?? cur.weight ?? null,
+      data,
+      serial: makeSerial(cfg, shots.length + 1, existingCount),
+      shotNum: shots.length + 1,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setShots(p => [...p, shot]);
+    // Clear fields — keep number field values for repeat entry
+    setCur(prev => {
+      const next = {};
+      for (const f of sessionFields) {
+        next[f.key] = f.type === "number" ? prev[f.key] : "";
+      }
+      return next;
+    });
+    setTimeout(() => fpsRef.current?.focus(), 50);
+  }, [cur, shots, cfg, existingCount, fields]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
   const saveEdit = () => { if (editIdx === null) return; const fps = parseFloat(editVal.fps), x = parseFloat(editVal.x), y = parseFloat(editVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => p.map((s, i) => i === editIdx ? { ...s, ...editVal, fps, x, y } : s)); setEditIdx(null); };
@@ -1275,7 +1671,7 @@ export default function App() {
   const finishSession = async () => {
     const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
     try {
-      const saved = await db.saveSession({ config: { ...cfg, sessionName: name }, shots: [...shots] });
+      const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
       // Upload any queued attachments, matching by serial number
       const pending = Object.entries(pendingAttachments);
       if (pending.length > 0) {
@@ -1286,7 +1682,7 @@ export default function App() {
           })
         );
       }
-      const entry = { ...saved, stats: calcStats(saved.shots) };
+      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
       setLog(p => [entry, ...p]);
       setViewId(saved.id);
       setPendingAttachments({});
@@ -1295,7 +1691,7 @@ export default function App() {
       setDbError('Failed to save session: ' + err.message);
     }
   };
-  const newSession = () => { setPhase(P.SETUP); setShots([]); setCur({ fps: "", x: "", y: "", weight: "" }); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
+  const newSession = () => { setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
   const delSession = async id => {
     try {
       await db.deleteSession(id);
@@ -1311,19 +1707,19 @@ export default function App() {
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data) || !data.length) { setDbError('No sessions found in file.'); return; }
       const saved = await Promise.all(data.map(s => db.saveSession({ config: s.config, shots: s.shots || [] })));
-      const entries = saved.map(s => ({ ...s, stats: calcStats(s.shots) }));
+      const entries = saved.map(s => ({ ...s, stats: calcStats(s.shots, s.config.fields) }));
       setLog(p => [...entries, ...p]);
     } catch (err) {
       setDbError('Import failed: ' + err.message);
     }
     e.target.value = "";
   };
-  const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); setEsNewShot({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" }); setEsShotEdit(null); setPhase(P.EDIT); };
+  const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); const sf = s.config.fields || fields; setEsNewShot(Object.fromEntries(sf.map(f => [f.key, ""]))); setEsShotEdit(null); setPhase(P.EDIT); };
   const saveEditSession = async () => {
     const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | ");
     try {
       const saved = await db.updateSession(editSessionId, { config: { ...esCfg, sessionName: name }, shots: [...esShots] });
-      const entry = { ...saved, stats: calcStats(saved.shots) };
+      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
       setLog(p => p.map(s => s.id === editSessionId ? entry : s));
       setViewId(editSessionId);
       setPhase(P.RESULTS);
@@ -1331,7 +1727,34 @@ export default function App() {
       setDbError('Failed to update session: ' + err.message);
     }
   };
-  const esAddShot = () => { const fps = parseFloat(esNewShot.fps), x = parseFloat(esNewShot.x), y = parseFloat(esNewShot.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => [...p, { fps, x, y, weight: esNewShot.weight, serial: makeSerial(esCfg, p.length + 1, 0), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setEsNewShot(p => ({ fps: "", x: "", y: "", weight: p.weight })); };
+  const esAddShot = () => {
+    const sf = esCfg.fields || fields;
+    for (const f of sf) {
+      if (f.required) {
+        if (f.type === "number" && isNaN(parseFloat(esNewShot[f.key]))) return;
+        if (f.type !== "number" && !esNewShot[f.key] && esNewShot[f.key] !== false) return;
+      }
+    }
+    const data = {};
+    for (const f of sf) {
+      const v = esNewShot[f.key];
+      if (f.type === "number") data[f.key] = v !== "" ? parseFloat(v) : null;
+      else if (f.type === "yesno") data[f.key] = v === "yes" ? true : v === "no" ? false : null;
+      else data[f.key] = v || null;
+    }
+    setEsShots(p => [...p, {
+      fps: data.fps ?? null, x: data.x ?? null, y: data.y ?? null, weight: data.weight ?? null,
+      data,
+      serial: makeSerial(esCfg, p.length + 1, 0),
+      shotNum: p.length + 1,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }]);
+    setEsNewShot(prev => {
+      const next = {};
+      for (const f of sf) { next[f.key] = f.type === "number" ? prev[f.key] : ""; }
+      return next;
+    });
+  };
   const esDelShot = i => setEsShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const esStartEdit = i => { setEsShotEdit(i); setEsShotEditVal({ ...esShots[i] }); };
   const esSaveEdit = () => { if (esShotEdit === null) return; const fps = parseFloat(esShotEditVal.fps), x = parseFloat(esShotEditVal.x), y = parseFloat(esShotEditVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => p.map((s, i) => i === esShotEdit ? { ...s, ...esShotEditVal, fps, x, y } : s)); setEsShotEdit(null); };
@@ -1340,7 +1763,8 @@ export default function App() {
     if (!s) return;
     setCfg({ ...s.config });
     setShots(s.shots.map(sh => ({ ...sh })));
-    setCur({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" });
+    const sessionFields = s.config.fields || fields;
+    setCur(Object.fromEntries(sessionFields.map(f => [f.key, ""])));
     try {
       await db.deleteSession(id);
       setLog(p => p.filter(x => x.id !== id));
@@ -1351,7 +1775,7 @@ export default function App() {
     setTimeout(() => fpsRef.current?.focus(), 100);
   };
   const viewed = log.find(s => s.id === viewId);
-  const esStats = useMemo(() => calcStats(esShots), [esShots]);
+  const esStats = useMemo(() => calcStats(esShots, esCfg.fields || fields), [esShots, esCfg.fields, fields]);
 
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
@@ -1424,6 +1848,8 @@ export default function App() {
         </div>
       </CardSection>
 
+      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} />
+
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col">
@@ -1450,7 +1876,7 @@ export default function App() {
       )}
 
       <Btn onClick={() => { setPhase(P.FIRE); setTimeout(() => fpsRef.current?.focus(), 100); }}
-        disabled={!cfg.rifleRate || !cfg.sleeveType || !total} cls="w-full py-3 text-base">
+        disabled={!cfg.rifleRate || !cfg.sleeveType || !total || fields.length === 0} cls="w-full py-3 text-base">
         Begin Firing Session
       </Btn>
 
@@ -1496,31 +1922,88 @@ export default function App() {
           <span className="text-xs text-muted-foreground">— press Enter to record</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {[["FPS *", "fps", "188"], ["X (in) *", "x", "−2"], ["Y (in) *", "y", "−8"], ["Weight (g)", "weight", "117.5"]].map(([lb, k, ph], i) => (
-            <div key={k} className="flex flex-col">
-              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
-              <input ref={i === 0 ? fpsRef : null} type="number" step={k === "weight" ? "0.01" : "0.5"} value={cur[k]} onChange={e => setCur(p => ({ ...p, [k]: e.target.value }))} placeholder={ph} className={inp} autoFocus={i === 0} />
+          {(cfg.fields || fields).map((f, i) => (
+            <div key={f.key} className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {f.label}{f.unit ? ` (${f.unit})` : ""}{f.required ? " *" : ""}
+              </label>
+              {f.type === "number" && (
+                <input ref={i === 0 ? fpsRef : null} type="number" inputMode="decimal" step="any"
+                  value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp} autoFocus={i === 0} />
+              )}
+              {f.type === "yesno" && (
+                <select value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp}>
+                  <option value="">—</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              )}
+              {f.type === "text" && (
+                <input ref={i === 0 ? fpsRef : null} type="text"
+                  value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp} autoFocus={i === 0} />
+              )}
+              {f.type === "dropdown" && (
+                <select value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp}>
+                  <option value="">—</option>
+                  {(f.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
             </div>
           ))}
         </div>
         <div className="flex gap-2">
-          <Btn onClick={addShot} disabled={!cur.fps || cur.x === "" || cur.y === "" || shots.length >= total}>Record</Btn>
+          <Btn onClick={addShot} disabled={shots.length >= total || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
           <Btn v="secondary" onClick={finishSession} disabled={shots.length < 2}>Finish Session</Btn>
           <Btn v="danger" onClick={() => { if (confirm("Abort this session?")) newSession(); }}>Abort</Btn>
         </div>
       </div>
 
-      {/* Live charts */}
+      {/* Live charts & shot log */}
+      {(() => {
+        const sf = cfg.fields || fields;
+        const hasX = sf.some(f => f.key === "x");
+        const hasY = sf.some(f => f.key === "y");
+        const hasXY = hasX && hasY;
+        const hasFps = sf.some(f => f.key === "fps");
+        return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        {hasXY && (
         <CardSection title="Live Dispersion">
           {validShots.length
             ? <AutoSizeChart render={(w, h) => <DispersionChart shots={validShots} stats={stats} size={Math.min(w, h) - 12} />} />
             : <Empty icon={<Crosshair size={18} />}>Record a shot to see the dispersion chart</Empty>}
         </CardSection>
+        )}
         <CardSection title="Running Stats">
           {validShots.length >= 2
             ? <div className="grid grid-cols-2 gap-2">
-                {[["CEP", stats.cep.toFixed(2), 0, OC.cep], ["R90", stats.r90.toFixed(2), 0, OC.r90], ["SD X", stats.sdX.toFixed(2)], ["SD Y", stats.sdY.toFixed(2)], ["Mean FPS", stats.meanV.toFixed(1), 1], ["SD FPS", stats.sdV.toFixed(1)], ["ES FPS", stats.esV.toFixed(1)], ["MPI", `${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`, 0, OC.mpi]].map(([k, v, g, ac]) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} />)}
+                {hasXY && <>
+                  <SB label="CEP" value={stats.cep.toFixed(2)} accentColor={OC.cep} />
+                  <SB label="R90" value={stats.r90.toFixed(2)} accentColor={OC.r90} />
+                  <SB label="SD X" value={stats.sdX.toFixed(2)} />
+                  <SB label="SD Y" value={stats.sdY.toFixed(2)} />
+                  <SB label="MPI" value={`${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`} accentColor={OC.mpi} />
+                </>}
+                {hasFps && <>
+                  <SB label="Mean FPS" value={stats.meanV.toFixed(1)} gold={1} />
+                  <SB label="SD FPS" value={stats.sdV.toFixed(1)} />
+                  <SB label="ES FPS" value={stats.esV.toFixed(1)} />
+                </>}
+                {sf.filter(f => f.type === "number" && !["x", "y", "fps"].includes(f.key)).map(f => {
+                  const vals = validShots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined && !isNaN(v));
+                  if (vals.length < 2) return null;
+                  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+                  return <SB key={f.key} label={`Mean ${f.label}`} value={`${m.toFixed(1)}${f.unit ? " " + f.unit : ""}`} />;
+                })}
+                {sf.filter(f => f.type === "yesno").map(f => {
+                  const vals = validShots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+                  const yesCount = vals.filter(v => v === true).length;
+                  return <SB key={f.key} label={f.label} value={`${yesCount}/${vals.length} (${vals.length ? Math.round(yesCount / vals.length * 100) : 0}%)`} />;
+                })}
               </div>
             : <Empty icon={<BarChart2 size={18} />}>Need 2 or more shots for statistics</Empty>}
         </CardSection>
@@ -1533,55 +2016,48 @@ export default function App() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      {["#","Serial","FPS","X","Y","Rad","Time","📎",""].map(h => (
-                        <th key={h} className={cn(
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">#</th>
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Serial</th>
+                      {sf.map(f => (
+                        <th key={f.key} className={cn(
                           "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5",
-                          ["FPS","X","Y","Rad"].includes(h) ? "text-right" : "text-left"
-                        )}>{h === "📎" ? "" : h}</th>
+                          f.type === "number" ? "text-right" : "text-left"
+                        )}>{f.label}</th>
                       ))}
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Time</th>
+                      <th className="px-2 py-1.5" />
+                      <th className="px-2 py-1.5" />
                     </tr>
                   </thead>
                   <tbody>
                     {shots.map((s, i) => (
                       <tr key={i} className="border-b border-border">
-                        {editIdx === i ? (
-                          <>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
-                            {["fps","x","y"].map(k => (
-                              <td key={k} className="px-2 py-1.5">
-                                <TblInput value={editVal[k]} onChange={e => setEditVal(p => ({ ...p, [k]: e.target.value }))} />
-                              </td>
-                            ))}
-                            <td className="px-2 py-1.5" />
-                            <td className="px-2 py-1.5" />
-                            <td className="px-2 py-1 text-right whitespace-nowrap">
-                              <button onClick={saveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
-                              <button onClick={() => setEditIdx(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.fps}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.x}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.y}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
-                            <td className="px-2 py-1.5">
-                              <ShotAttachBtn
-                                serial={s.serial}
-                                pendingCount={(pendingAttachments[s.serial] || []).length}
-                                onQueue={queueAttachment}
-                                onError={setDbError} />
-                            </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                              <button onClick={() => startEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
-                              <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
-                            </td>
-                          </>
-                        )}
+                        <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                        {sf.map(f => {
+                          const val = (s.data || s)[f.key];
+                          let display = "";
+                          if (val === true) display = "Yes";
+                          else if (val === false) display = "No";
+                          else if (val !== null && val !== undefined) display = String(val);
+                          return (
+                            <td key={f.key} className={cn(
+                              "px-2 py-1.5",
+                              f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                            )}>{display}</td>
+                          );
+                        })}
+                        <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                        <td className="px-2 py-1.5">
+                          <ShotAttachBtn
+                            serial={s.serial}
+                            pendingCount={(pendingAttachments[s.serial] || []).length}
+                            onQueue={queueAttachment}
+                            onError={setDbError} />
+                        </td>
+                        <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                          <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1590,13 +2066,23 @@ export default function App() {
             : <Empty>No shots recorded yet</Empty>}
         </div>
       </div>
+        );
+      })()}
     </AppShell>
   );
 
   // ─── RESULTS ─────────────────────────────────────────────────────────────────
   if (phase === P.RESULTS && viewed) {
     const s = viewed;
-    const vs = s.shots.filter(sh => !isNaN(sh.fps) && !isNaN(sh.x) && !isNaN(sh.y));
+    const sf = s.config.fields || fields;
+    const sfKeys = new Set(sf.map(f => f.key));
+    const availableWidgets = Object.keys(WIDGETS).filter(k => WIDGETS[k].requires.every(r => sfKeys.has(r)));
+    const activeLayout = layout.filter(k => availableWidgets.includes(k));
+    const vs = s.shots.filter(sh => {
+      const d = sh.data || sh;
+      const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
+      return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+    });
     const st = s.stats;
     const cfgLine = vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ");
     return (
@@ -1630,7 +2116,7 @@ export default function App() {
 
           {/* Widget grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-            {layout.map((key, idx) => {
+            {activeLayout.map((key, idx) => {
               const wg = WIDGETS[key]; if (!wg) return null;
               const fullWidth = key === "shotTable" || key === "attachments";
               return (
@@ -1650,11 +2136,11 @@ export default function App() {
                 </div>
               );
             })}
-            {Object.keys(WIDGETS).some(k => !layout.includes(k)) && (
+            {availableWidgets.some(k => !activeLayout.includes(k)) && (
               <div className="p-5 border-b border-border lg:col-span-2 flex justify-center">
                 <WidgetAdder
-                  available={Object.keys(WIDGETS).filter(k => !layout.includes(k))}
-                  labels={Object.fromEntries(Object.keys(WIDGETS).map(k => [k, WIDGETS[k].label]))}
+                  available={availableWidgets.filter(k => !activeLayout.includes(k))}
+                  labels={Object.fromEntries(availableWidgets.map(k => [k, WIDGETS[k].label]))}
                   onAdd={toggleWidget} />
               </div>
             )}
@@ -1783,14 +2269,38 @@ export default function App() {
     const resolved = cmpSlots.map(sl => {
       const s = log.find(x => x.id === sl.id);
       if (!s) return null;
-      const vs = s.shots.filter(sh => !isNaN(sh.fps) && !isNaN(sh.x) && !isNaN(sh.y));
-      return { ...sl, session: s, shots: vs, stats: s.stats };
+      const sf = s.config.fields || fields;
+      const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
+      const vs = s.shots.filter(sh => {
+        const d = sh.data || sh;
+        return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+      });
+      return { ...sl, session: s, shots: vs, stats: s.stats, fields: sf };
     }).filter(Boolean);
+    // Compute common fields across all selected sessions
+    const commonFields = resolved.length > 0
+      ? resolved[0].fields.filter(f => resolved.every(r => r.fields.some(rf => rf.key === f.key)))
+      : [];
+    const commonKeys = new Set(commonFields.map(f => f.key));
+    const commonHasXY = commonKeys.has("x") && commonKeys.has("y");
+    const commonHasFps = commonKeys.has("fps");
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, rankings: { label: "Rankings" } };
-    const mainItems    = cmpLayout.filter(item => item.zone === 'main');
-    const sidebarItems = cmpLayout.filter(item => item.zone === 'sidebar');
-    const fullItems    = cmpLayout.filter(item => item.zone === 'full');
+    const CMP_WIDGET_DEFS = {
+      overlay:    { label: "Dispersion Overlay", requires: ["x", "y"] },
+      metrics:    { label: "Metrics Table", requires: [] },
+      velCompare: { label: "Velocity Comparison", requires: ["fps"] },
+      shotLog:    { label: "Shot Log", requires: [] },
+      attachments:{ label: "Attachments", requires: [] },
+      rankings:   { label: "Rankings", requires: [] },
+    };
+    const availableCmpWidgets = Object.keys(CMP_WIDGET_DEFS).filter(k => {
+      if (k === 'rankings') return commonHasFps || commonHasXY;
+      return CMP_WIDGET_DEFS[k].requires.every(r => commonKeys.has(r));
+    });
+    const activeCmpLayout = cmpLayout.filter(item => availableCmpWidgets.includes(item.i));
+    const mainItems    = activeCmpLayout.filter(item => item.zone === 'main');
+    const sidebarItems = activeCmpLayout.filter(item => item.zone === 'sidebar');
+    const fullItems    = activeCmpLayout.filter(item => item.zone === 'full');
     const splitMap     = { '1/2': '50%', '2/3': '67%', '3/4': '75%' };
     const mainWidth    = splitMap[cmpSplit];
     const zoneLabel    = { main: 'M', sidebar: 'S', full: 'F' };
@@ -1865,7 +2375,20 @@ export default function App() {
           </div>
         </>
       );
-      if (key === 'metrics' && activeMetrics.length) return (
+      if (key === 'metrics') {
+        // Filter activeMetrics to only show metrics whose required fields are present
+        const metricRequires = { cep: ["x","y"], r90: ["x","y"], mr: ["x","y"], es: ["x","y"], sdX: ["x","y"], sdY: ["x","y"], sdR: ["x","y"], mpiX: ["x","y"], mpiY: ["x","y"], meanV: ["fps"], sdV: ["fps"], esV: ["fps"] };
+        const visibleMetrics = activeMetrics.filter(([_label, key2]) => {
+          const reqs = metricRequires[key2] || [];
+          return reqs.every(r => commonKeys.has(r));
+        });
+        // Add dynamic per-field metrics for common number fields (excluding x,y,fps)
+        const customNumFields = commonFields.filter(f => f.type === "number" && !["x","y","fps"].includes(f.key));
+        const customYesNoFields = commonFields.filter(f => f.type === "yesno");
+        if (!visibleMetrics.length && !customNumFields.length && !customYesNoFields.length) return (
+          <div className="py-6 text-center text-sm text-muted-foreground">No comparable metrics available for the selected sessions.</div>
+        );
+        return (
         <>
           <div className="export-hide flex justify-end mb-2">
             <button onClick={() => setCmpMetricsOpen(o => !o)}
@@ -1875,7 +2398,10 @@ export default function App() {
           </div>
           {cmpMetricsOpen && (
             <div className="export-hide flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
-              {ALL_METRICS.map(([label]) => (
+              {ALL_METRICS.filter(([_label, key2]) => {
+                const reqs = metricRequires[key2] || [];
+                return reqs.every(r => commonKeys.has(r));
+              }).map(([label]) => (
                 <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
               ))}
             </div>
@@ -1891,7 +2417,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {activeMetrics.map(([label, key2, dec]) => {
+                {visibleMetrics.map(([label, key2, dec]) => {
                   const vals = resolved.map(r => r.stats[key2]);
                   const isLb = LOWER_BETTER.includes(label);
                   const best = isLb ? Math.min(...vals) : Math.max(...vals);
@@ -1908,11 +2434,40 @@ export default function App() {
                     </tr>
                   );
                 })}
+                {customNumFields.map(f => {
+                  const vals = resolved.map(r => {
+                    const fs = r.stats.fieldStats?.[f.key];
+                    return fs?.mean ?? null;
+                  });
+                  const validVals = vals.filter(v => v !== null);
+                  if (validVals.length < 2) return null;
+                  return (
+                    <tr key={`mean-${f.key}`} className="border-b border-border odd:bg-secondary/30">
+                      <td className="px-2.5 py-2.5 text-sm text-foreground">Mean {f.label}</td>
+                      {resolved.map((r, i) => {
+                        const v = r.stats.fieldStats?.[f.key]?.mean;
+                        return <td key={i} className="px-2.5 py-2.5 text-right font-mono font-semibold text-sm text-foreground">{v !== null && v !== undefined ? v.toFixed(1) : "—"}{f.unit ? ` ${f.unit}` : ""}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
+                {customYesNoFields.map(f => {
+                  return (
+                    <tr key={`yn-${f.key}`} className="border-b border-border odd:bg-secondary/30">
+                      <td className="px-2.5 py-2.5 text-sm text-foreground">{f.label}</td>
+                      {resolved.map((r, i) => {
+                        const fs = r.stats.fieldStats?.[f.key];
+                        return <td key={i} className="px-2.5 py-2.5 text-right font-mono font-semibold text-sm text-foreground">{fs ? `${fs.yes}/${fs.total} (${fs.pct}%)` : "—"}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>
-      );
+        );
+      }
       if (key === 'velCompare') return (
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
           {resolved.map((r, i) => (
@@ -1927,40 +2482,48 @@ export default function App() {
         const allShots = resolved.flatMap(r =>
           [...r.shots]
             .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
-            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color, mpiX: r.stats.mpiX, mpiY: r.stats.mpiY }))
+            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color }))
         );
-        const hdrs = ["Session","#","Serial","FPS","X","Y","Wt","Rad"];
-        const rightAlign = ["FPS","X","Y","Wt","Rad"];
         return (
           <div className="overflow-auto max-h-80">
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border">
-                  {hdrs.map(h => (
-                    <th key={h} className={cn(
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Session</th>
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+                  {commonFields.map(f => (
+                    <th key={f.key} className={cn(
                       "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                      rightAlign.includes(h) ? "text-right" : "text-left"
-                    )}>{h}</th>
+                      f.type === "number" ? "text-right" : "text-left"
+                    )}>{f.label}</th>
                   ))}
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
                 </tr>
               </thead>
               <tbody>
-                {allShots.map((s, i) => {
-                  const r = rad(s.x - (s.mpiX || 0), s.y - (s.mpiY || 0));
-                  return (
-                    <tr key={i} className="border-b transition-colors"
-                      style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
-                      <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
-                      <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
-                      <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.fps}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.x}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.y}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{s.weight || "—"}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{r.toFixed(3)}</td>
-                    </tr>
-                  );
-                })}
+                {allShots.map((s, i) => (
+                  <tr key={i} className="border-b transition-colors"
+                    style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
+                    <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
+                    <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
+                    <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
+                    {commonFields.map(f => {
+                      const val = (s.data || s)[f.key];
+                      let display = "";
+                      if (val === true) display = "Yes";
+                      else if (val === false) display = "No";
+                      else if (val !== null && val !== undefined) display = String(val);
+                      return (
+                        <td key={f.key} className={cn(
+                          "px-2.5 py-1.5",
+                          f.type === "number" ? "text-right font-mono text-foreground" : "text-foreground"
+                        )}>{display || "—"}</td>
+                      );
+                    })}
+                    <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1975,8 +2538,8 @@ export default function App() {
       );
       if (key === 'rankings') return (
         <div className="flex">
-          <div className="flex-1 min-w-0 border-r border-border"><VelRankingWidget sessions={cmpSessions} /></div>
-          <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>
+          {commonHasFps && <div className={cn("flex-1 min-w-0", commonHasXY && "border-r border-border")}><VelRankingWidget sessions={cmpSessions} /></div>}
+          {commonHasXY && <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>}
         </div>
       );
       return null;
@@ -2177,7 +2740,11 @@ export default function App() {
           </div>{/* end collapsible content */}
           </div>{/* end session picker */}
 
-          {resolved.length >= 2 ? (
+          {resolved.length >= 2 && commonFields.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm text-muted-foreground">Selected sessions have no common measurement fields to compare.</p>
+            </div>
+          ) : resolved.length >= 2 ? (
               <>
                 {/* Main + Sidebar row */}
                 {(mainItems.length > 0 || sidebarItems.length > 0) && (
@@ -2201,11 +2768,11 @@ export default function App() {
                 {/* Full-width zone */}
                 {fullItems.map(item => renderWidget(item))}
                 {/* Add widget bar */}
-                {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpLayout.some(item => item.i === k)) && (
+                {availableCmpWidgets.some(k => !activeCmpLayout.some(item => item.i === k)) && (
                   <div className="widget-add-bar p-5 border-t border-border flex justify-center">
                     <WidgetAdder
-                      available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpLayout.some(item => item.i === k))}
-                      labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
+                      available={availableCmpWidgets.filter(k => !activeCmpLayout.some(item => item.i === k))}
+                      labels={Object.fromEntries(availableCmpWidgets.map(k => [k, CMP_WIDGET_DEFS[k].label]))}
                       onAdd={addWidget} />
                   </div>
                 )}
