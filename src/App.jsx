@@ -60,6 +60,12 @@ function migrateLayout(items) {
 const PALETTE=["#FFDF00","#3b82f6","#ef4444","#22c55e","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e"];
 const DEF_OPTS={rifleRate:["1-6","1-8","1-10","1-12","1-14","1-16","1-18"],sleeveType:["Slotted PLA","Not Slotted PLA","ABS","Ribbed","TPU","Delrin + O ring","Brass (14.65)","Brass (14.75)","Brass (14.80)","Brass (14.65) Reused","Brass (14.75) Reused","S-13 14.80 od","S-16 14.80 od","S-16 14.80 od (Reused)","S-17 14.85 od","S-21 14.90 od"],tailType:["Straight","Tapered","Steep Taper","Round","Biridge","Triridge","Indented"],combustionChamber:["Short (1.5)","Long (1.5)"],load22:["Red","Purple"]};
 const DEF_VARS=[{key:"rifleRate",label:"Rifle Rate",core:true},{key:"sleeveType",label:"Sleeve Type",core:true},{key:"tailType",label:"Tail Type",core:true},{key:"combustionChamber",label:"Combustion Chamber",core:true},{key:"load22",label:".22 Load",core:true}];
+const DEFAULT_FIELDS = [
+  { key: "fps", label: "FPS", type: "number", required: true, options: [], unit: "fps" },
+  { key: "x", label: "X", type: "number", required: true, options: [], unit: "in" },
+  { key: "y", label: "Y", type: "number", required: true, options: [], unit: "in" },
+  { key: "weight", label: "Weight", type: "number", required: false, options: [], unit: "g" },
+];
 const ALL_METRICS=[["CEP (50%)","cep",3,true],["R90","r90",3,true],["Mean Radius","mr",3,true],["Ext. Spread","es",3,true],["SD X","sdX",3,true],["SD Y","sdY",3,true],["SD Radial","sdR",3,false],["MPI X","mpiX",3,false],["MPI Y","mpiY",3,false],["Mean FPS","meanV",1,true],["SD FPS","sdV",1,true],["ES FPS","esV",1,true]];
 const LOWER_BETTER=["CEP (50%)","R90","Mean Radius","Ext. Spread","SD X","SD Y","SD Radial","SD FPS","ES FPS"];
 const OC = { cep: "#3b82f6", r90: "#a855f7", ellipse: "#06b6d4", mpi: "#22c55e" }; // overlay colors
@@ -1059,6 +1065,7 @@ export default function App() {
   const [log, setLog]       = useState([]);
   const [opts, setOpts]     = useState(DEF_OPTS);
   const [vars, setVars]     = useState(DEF_VARS);
+  const [fields, setFields] = useState(DEFAULT_FIELDS);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
@@ -1131,6 +1138,7 @@ export default function App() {
         });
       }
       if (settings.vars?.length) setVars(settings.vars);
+      if (settings.fields?.length) setFields(settings.fields);
       if (settings.layout) {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
@@ -1151,7 +1159,11 @@ export default function App() {
         }
         if (settings.layout.cmpSplit) setCmpSplit(settings.layout.cmpSplit);
       }
-      setLog(sessions.map(s => ({ ...s, stats: calcStats(s.shots) })));
+      setLog(sessions.map(s => ({
+        ...s,
+        config: { ...s.config, fields: s.config.fields || DEFAULT_FIELDS },
+        stats: calcStats(s.shots),
+      })));
       setSavedComparisons(comparisons);
       setHasAttachments(allAtts.length > 0);
     } catch (err) {
@@ -1275,7 +1287,7 @@ export default function App() {
   const finishSession = async () => {
     const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
     try {
-      const saved = await db.saveSession({ config: { ...cfg, sessionName: name }, shots: [...shots] });
+      const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
       // Upload any queued attachments, matching by serial number
       const pending = Object.entries(pendingAttachments);
       if (pending.length > 0) {
