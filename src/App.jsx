@@ -965,7 +965,7 @@ function GroupedBarChart({ sessions, fieldKey, options, width = 360 }) {
   const barH = 18, gap = 3, groupGap = 12;
   const groupH = sessions.length * (barH + gap) - gap;
   const totalH = options.length * (groupH + groupGap) - groupGap;
-  const m = { t: 10, r: 40, b: 24, l: 90 };
+  const m = { t: 24, r: 40, b: 24, l: 90 };
   const svgH = m.t + totalH + m.b;
 
   useEffect(() => {
