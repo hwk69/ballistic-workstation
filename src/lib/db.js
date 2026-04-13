@@ -23,7 +23,7 @@ export async function getSettings() {
     .select('*')
     .eq('id', 1)
     .single();
-  return data || { opts: null, vars: null, layout: null, fields: null };
+  return data || { opts: null, vars: null, layout: null, fields: null, custom_presets: null };
 }
 
 export async function saveSettings(patch) {
