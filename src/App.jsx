@@ -791,6 +791,175 @@ function FpsTrack({ shots, width = 360, color = G }) {
   );
 }
 
+function NumberFieldChart({ shots, fieldKey, label, unit, width = 360, color = G, mode = "tracking", onModeChange }) {
+  const ref = useRef();
+  const [tip, setTip] = useState(null);
+  const vals = useMemo(() =>
+    shots.map((s, i) => ({ i: i + 1, v: (s.data || s)[fieldKey] }))
+      .filter(d => d.v !== null && d.v !== undefined && !isNaN(d.v)),
+    [shots, fieldKey]
+  );
+
+  useEffect(() => {
+    if (!ref.current || vals.length < 2) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+
+    if (mode === "tracking") {
+      // Line chart: value over shot number (same pattern as FpsTrack)
+      const m = { t: 15, r: 15, b: 30, l: 42 }, w = width - m.l - m.r, h = 125 - m.t - m.b;
+      const x = d3.scaleLinear().domain([1, vals.length]).range([0, w]);
+      const y = d3.scaleLinear().domain([d3.min(vals, d => d.v) - (d3.max(vals, d => d.v) - d3.min(vals, d => d.v)) * 0.1 || 1, d3.max(vals, d => d.v) + (d3.max(vals, d => d.v) - d3.min(vals, d => d.v)) * 0.1 || 1]).range([h, 0]);
+      const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+      gg.append("g").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(Math.min(vals.length, 10)).tickFormat(d3.format("d"))).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.append("g").call(d3.axisLeft(y).ticks(4)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
+      const mv = mean(vals.map(d => d.v));
+      gg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(mv)).attr("y2", y(mv))
+        .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", "4,3").attr("stroke-opacity", .45);
+      gg.append("path").datum(vals).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.5)
+        .attr("d", d3.line().x(d => x(d.i)).y(d => y(d.v)).curve(d3.curveMonotoneX));
+      gg.selectAll("circle").data(vals).join("circle")
+        .attr("cx", d => x(d.i)).attr("cy", d => y(d.v)).attr("r", 4)
+        .attr("fill", color).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4)
+        .attr("cursor", "crosshair")
+        .on("mouseenter", function(ev, d) {
+          d3.select(this).attr("r", 6);
+          setTip({ x: ev.clientX, y: ev.clientY, lines: [`Shot\u00a0#${d.i}`, `${label}\u00a0${d.v}${unit ? "\u00a0" + unit : ""}`] });
+        })
+        .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+        .on("mouseleave", function() { d3.select(this).attr("r", 4); setTip(null); });
+      svg.append("text").attr("x", width / 2).attr("y", 122).attr("text-anchor", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text(`Shot # → ${label}${unit ? " (" + unit + ")" : ""}`);
+    } else {
+      // Histogram: distribution of values (same pattern as VelHist)
+      const m = { t: 20, r: 15, b: 34, l: 38 }, w = width - m.l - m.r, h = 145 - m.t - m.b;
+      const raw = vals.map(d => d.v);
+      const x = d3.scaleLinear().domain([Math.min(...raw) - (Math.max(...raw) - Math.min(...raw)) * 0.1 || -1, Math.max(...raw) + (Math.max(...raw) - Math.min(...raw)) * 0.1 || 1]).range([0, w]);
+      const bins = d3.bin().domain(x.domain()).thresholds(Math.min(vals.length, 14))(raw);
+      const y = d3.scaleLinear().domain([0, d3.max(bins, d => d.length)]).nice().range([h, 0]);
+      const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+      gg.selectAll("rect").data(bins).join("rect")
+        .attr("x", d => x(d.x0) + 1).attr("y", d => y(d.length))
+        .attr("width", d => Math.max(0, x(d.x1) - x(d.x0) - 2)).attr("height", d => h - y(d.length))
+        .attr("fill", color).attr("fill-opacity", .7).attr("rx", 2);
+      gg.append("g").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(5)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.append("g").call(d3.axisLeft(y).ticks(3)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
+      // KDE curve
+      const bw = std(raw) * .6 || 5;
+      const kde = x.ticks(50).map(t => [t, raw.reduce((s2, vi) => s2 + Math.exp(-.5 * ((t - vi) / bw) ** 2), 0) / (raw.length * bw * Math.sqrt(2 * Math.PI))]);
+      const yK = d3.scaleLinear().domain([0, d3.max(kde, d => d[1])]).range([h, 0]);
+      gg.append("path").datum(kde).attr("fill", "none").attr("stroke", "rgba(255,255,255,0.45)").attr("stroke-width", 1.5)
+        .attr("d", d3.line().x(d => x(d[0])).y(d => yK(d[1])).curve(d3.curveBasis));
+      svg.append("text").attr("x", width / 2).attr("y", 142).attr("text-anchor", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text(`${label}${unit ? " (" + unit + ")" : ""}`);
+    }
+  }, [vals, width, color, mode, label, unit]);
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={width} height={mode === "tracking" ? 125 : 145} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
+}
+
+function DonutChart({ yesCount, noCount, total, label, width = 360, color = G }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!ref.current || total === 0) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+    const size = Math.min(width, 180);
+    const radius = size / 2 - 10;
+    const innerRadius = radius * 0.55;
+    const gg = svg.append("g").attr("transform", `translate(${width / 2},${90})`);
+
+    const data = [
+      { label: "Yes", value: yesCount, color: color },
+      { label: "No", value: noCount, color: "rgba(255,255,255,0.15)" },
+    ].filter(d => d.value > 0);
+
+    const pie = d3.pie().value(d => d.value).sort(null).padAngle(0.03);
+    const arc = d3.arc().innerRadius(innerRadius).outerRadius(radius);
+
+    gg.selectAll("path").data(pie(data)).join("path")
+      .attr("d", arc)
+      .attr("fill", d => d.data.color)
+      .attr("stroke", "rgba(0,0,0,0.3)")
+      .attr("stroke-width", 1);
+
+    // Center percentage text
+    const pct = total > 0 ? Math.round(yesCount / total * 100) : 0;
+    gg.append("text").attr("text-anchor", "middle").attr("dy", "-0.1em")
+      .attr("fill", "#fff").attr("font-size", 22).attr("font-weight", "700")
+      .text(`${pct}%`);
+    gg.append("text").attr("text-anchor", "middle").attr("dy", "1.3em")
+      .attr("fill", TICK_CLR).attr("font-size", 10)
+      .text("Yes");
+
+    // Legend below
+    const legend = svg.append("g").attr("transform", `translate(${width / 2 - 60},${175})`);
+    const items = [
+      { label: `Yes: ${yesCount}`, color: color },
+      { label: `No: ${noCount}`, color: "rgba(255,255,255,0.15)" },
+    ];
+    items.forEach((item, i) => {
+      const g = legend.append("g").attr("transform", `translate(${i * 80},0)`);
+      g.append("rect").attr("width", 10).attr("height", 10).attr("rx", 2).attr("fill", item.color);
+      g.append("text").attr("x", 14).attr("y", 9).attr("fill", TICK_CLR).attr("font-size", 10).text(item.label);
+    });
+  }, [yesCount, noCount, total, width, color]);
+
+  return <svg ref={ref} width={width} height={200} style={{ background: CHART_BG, borderRadius: 10 }} />;
+}
+
+function FieldBarChart({ counts, total, label, width = 360, color = G }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!ref.current || total === 0) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const barH = 22, gap = 4, m = { t: 10, r: 15, b: 10, l: 90 };
+    const h = m.t + entries.length * (barH + gap) + m.b;
+    const w = width - m.l - m.r;
+
+    svg.attr("height", h);
+    const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+
+    const x = d3.scaleLinear().domain([0, d3.max(entries, d => d[1])]).nice().range([0, w]);
+
+    entries.forEach(([opt, cnt], i) => {
+      const y = i * (barH + gap);
+      const opacity = 0.9 - (i * 0.12);
+      gg.append("rect")
+        .attr("x", 0).attr("y", y)
+        .attr("width", x(cnt)).attr("height", barH)
+        .attr("fill", color).attr("fill-opacity", Math.max(opacity, 0.3)).attr("rx", 3);
+
+      // Count label inside bar (or to the right if bar is too small)
+      const countX = x(cnt) > 30 ? x(cnt) - 6 : x(cnt) + 6;
+      const countAnchor = x(cnt) > 30 ? "end" : "start";
+      gg.append("text")
+        .attr("x", countX).attr("y", y + barH / 2 + 1)
+        .attr("text-anchor", countAnchor).attr("dominant-baseline", "middle")
+        .attr("fill", x(cnt) > 30 ? "rgba(0,0,0,0.8)" : TICK_CLR)
+        .attr("font-size", 11).attr("font-weight", "600")
+        .text(cnt);
+
+      // Option label to the left
+      gg.append("text")
+        .attr("x", -6).attr("y", y + barH / 2 + 1)
+        .attr("text-anchor", "end").attr("dominant-baseline", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 11)
+        .text(opt.length > 12 ? opt.slice(0, 11) + "…" : opt);
+    });
+  }, [counts, total, width, color]);
+
+  const entryCount = Object.keys(counts).length;
+  const h = 10 + entryCount * 26 + 10;
+  return <svg ref={ref} width={width} height={Math.max(h, 60)} style={{ background: CHART_BG, borderRadius: 10 }} />;
+}
+
 function XYTrack({ shots, width = 360 }) {
   const ref = useRef();
   useEffect(() => {
@@ -926,7 +1095,7 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
 }
 
 // ─── Widget registry ──────────────────────────────────────────────────────────
-const WIDGETS = {
+const STATIC_WIDGETS = {
   dispersion: { label: "Shot Dispersion", default: true, requires: ["x", "y"], render: (s, vs, st, opts, toggle, setOpt) => (
     <>
       <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
@@ -1000,7 +1169,84 @@ const WIDGETS = {
     <AccuracyRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
 };
-const DEF_LAYOUT = Object.keys(WIDGETS).filter(k => WIDGETS[k].default);
+
+function buildWidgets(sessionFields) {
+  const widgets = { ...STATIC_WIDGETS };
+  if (!sessionFields) return widgets;
+
+  for (const f of sessionFields) {
+    if (["fps", "x", "y"].includes(f.key)) continue;
+    if (f.type === "text") continue;
+
+    const wKey = `custom_${f.key}`;
+
+    if (f.type === "number") {
+      const fieldKey = f.key, fieldLabel = f.label, fieldUnit = f.unit || "";
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts, toggle, setOpt) => (
+          <>
+            <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
+              <Toggle label="Tracking" on={opts.chartMode !== "histogram"} onToggle={() => setOpt("chartMode", opts.chartMode === "histogram" ? "tracking" : "histogram")} />
+              <ColorPicker color={opts.color || G} onChange={c => setOpt("color", c)} />
+            </div>
+            <AutoSizeChart render={(w) => (
+              <NumberFieldChart
+                shots={vs} fieldKey={fieldKey} label={fieldLabel}
+                unit={fieldUnit} width={w - 8} color={opts.color || G}
+                mode={opts.chartMode || "tracking"}
+                onModeChange={m => setOpt("chartMode", m)}
+              />
+            )} />
+          </>
+        ),
+      };
+    }
+
+    if (f.type === "yesno") {
+      const fieldKey = f.key, fieldLabel = f.label;
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts) => (
+          <AutoSizeChart render={(w) => (
+            <DonutChart
+              yesCount={st.fieldStats?.[fieldKey]?.yes || 0}
+              noCount={(st.fieldStats?.[fieldKey]?.total || 0) - (st.fieldStats?.[fieldKey]?.yes || 0)}
+              total={st.fieldStats?.[fieldKey]?.total || 0}
+              label={fieldLabel} width={w - 8} color={opts.color || G}
+            />
+          )} />
+        ),
+      };
+    }
+
+    if (f.type === "dropdown") {
+      const fieldKey = f.key, fieldLabel = f.label;
+      widgets[wKey] = {
+        label: `${fieldLabel} Chart`,
+        default: false,
+        requires: [fieldKey],
+        render: (s, vs, st, opts) => (
+          <AutoSizeChart render={(w) => (
+            <FieldBarChart
+              counts={st.fieldStats?.[fieldKey]?.counts || {}}
+              total={st.fieldStats?.[fieldKey]?.total || 0}
+              label={fieldLabel} width={w - 8} color={opts.color || G}
+            />
+          )} />
+        ),
+      };
+    }
+  }
+
+  return widgets;
+}
+
+const DEF_LAYOUT = Object.keys(STATIC_WIDGETS).filter(k => STATIC_WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
 const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6 };
@@ -1057,7 +1303,7 @@ function TblInput({ value, onChange }) {
 }
 
 // ─── Measurement Fields Card ────────────────────────────────────────────────
-function MeasurementFieldsCard({ fields, onUpdate }) {
+function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCustomPreset }) {
   const [adding, setAdding] = useState(false);
   const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
   const [newOption, setNewOption] = useState("");
@@ -1066,13 +1312,15 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
   const typeLabels = { number: "Number", yesno: "Yes / No", text: "Text", dropdown: "Dropdown" };
 
   // Standard field presets — selecting one auto-fills name, type, required, unit
-  const PRESETS = [
+  const STANDARD_PRESETS = [
     { key: "fps", label: "FPS", type: "number", required: true, unit: "fps" },
     { key: "x", label: "X", type: "number", required: true, unit: "in" },
     { key: "y", label: "Y", type: "number", required: true, unit: "in" },
     { key: "weight", label: "Weight", type: "number", required: false, unit: "g" },
   ];
-  const availablePresets = PRESETS.filter(p => !fields.some(f => f.key === p.key));
+  const ALL_PRESETS = [...STANDARD_PRESETS, ...customPresets.filter(cp => !STANDARD_PRESETS.some(sp => sp.key === cp.key))];
+  const availableStandard = STANDARD_PRESETS.filter(p => !fields.some(f => f.key === p.key));
+  const availableCustom = customPresets.filter(cp => !fields.some(f => f.key === cp.key) && !STANDARD_PRESETS.some(sp => sp.key === cp.key));
 
   const selectPreset = (key) => {
     if (key === "__custom__") {
@@ -1080,10 +1328,10 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
       setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
       return;
     }
-    const p = PRESETS.find(x => x.key === key);
+    const p = ALL_PRESETS.find(x => x.key === key);
     if (p) {
       setCustomName(false);
-      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit, options: [] });
+      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit || "", options: p.options || [] });
     }
   };
 
@@ -1101,6 +1349,7 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
       unit: newField.type === "number" ? newField.unit.trim() : "",
     };
     onUpdate([...fields, field]);
+    if (onAddCustomPreset) onAddCustomPreset(field);
     setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
     setNewOption("");
     setCustomName(false);
@@ -1164,14 +1413,25 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
               <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Field Name</label>
               {!customName ? (
                 <select
-                  value={newField.name ? PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
+                  value={newField.name ? ALL_PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
                   onChange={e => selectPreset(e.target.value)}
                   className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
                   autoFocus>
                   <option value="">— Select field —</option>
-                  {availablePresets.map(p => (
-                    <option key={p.key} value={p.key}>{p.label} ({p.unit})</option>
-                  ))}
+                  {availableStandard.length > 0 && (
+                    <optgroup label="Standard">
+                      {availableStandard.map(p => (
+                        <option key={p.key} value={p.key}>{p.label}{p.unit ? ` (${p.unit})` : ""}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {availableCustom.length > 0 && (
+                    <optgroup label="Saved">
+                      {availableCustom.map(p => (
+                        <option key={p.key} value={p.key}>{p.label}{p.unit ? ` (${p.unit})` : ""}{p.type !== "number" ? ` · ${p.type}` : ""}</option>
+                      ))}
+                    </optgroup>
+                  )}
                   <option value="__custom__">Custom…</option>
                 </select>
               ) : (
@@ -1396,6 +1656,7 @@ export default function App() {
   const [opts, setOpts]     = useState(DEF_OPTS);
   const [vars, setVars]     = useState(DEF_VARS);
   const [fields, setFields] = useState(DEFAULT_FIELDS);
+  const [customPresets, setCustomPresets] = useState([]);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
@@ -1469,6 +1730,7 @@ export default function App() {
       }
       if (settings.vars?.length) setVars(settings.vars);
       if (settings.fields?.length) setFields(settings.fields);
+      if (settings.custom_presets?.length) setCustomPresets(settings.custom_presets);
       if (settings.layout) {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
@@ -1620,6 +1882,15 @@ export default function App() {
   const updateFields = useCallback(async (newFields) => {
     setFields(newFields);
     try { await db.saveSettings({ fields: newFields }); } catch (err) { setDbError('Fields save failed: ' + err.message); }
+  }, []);
+  const addCustomPreset = useCallback(async (field) => {
+    if (["fps", "x", "y", "weight"].includes(field.key)) return;
+    setCustomPresets(prev => {
+      if (prev.some(p => p.key === field.key)) return prev;
+      const updated = [...prev, { key: field.key, label: field.label, type: field.type, required: field.required, unit: field.unit || "", options: field.options || [] }];
+      db.saveSettings({ custom_presets: updated }).catch(err => setDbError('Preset save failed: ' + err.message));
+      return updated;
+    });
   }, []);
   const addShot = useCallback(() => {
     // Validate required fields
@@ -1848,7 +2119,7 @@ export default function App() {
         </div>
       </CardSection>
 
-      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} />
+      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} customPresets={customPresets} onAddCustomPreset={addCustomPreset} />
 
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2076,7 +2347,8 @@ export default function App() {
     const s = viewed;
     const sf = s.config.fields || fields;
     const sfKeys = new Set(sf.map(f => f.key));
-    const availableWidgets = Object.keys(WIDGETS).filter(k => WIDGETS[k].requires.every(r => sfKeys.has(r)));
+    const widgets = buildWidgets(sf);
+    const availableWidgets = Object.keys(widgets).filter(k => widgets[k].requires.every(r => sfKeys.has(r)));
     const activeLayout = layout.filter(k => availableWidgets.includes(k));
     const vs = s.shots.filter(sh => {
       const d = sh.data || sh;
@@ -2117,8 +2389,8 @@ export default function App() {
           {/* Widget grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {activeLayout.map((key, idx) => {
-              const wg = WIDGETS[key]; if (!wg) return null;
-              const fullWidth = key === "shotTable" || key === "attachments";
+              const wg = widgets[key]; if (!wg) return null;
+              const fullWidth = key === "shotTable" || key === "attachments" || key.startsWith("custom_");
               return (
                 <div key={key} className={cn(
                   "p-5 border-b border-border",
@@ -2140,7 +2412,7 @@ export default function App() {
               <div className="p-5 border-b border-border lg:col-span-2 flex justify-center">
                 <WidgetAdder
                   available={availableWidgets.filter(k => !activeLayout.includes(k))}
-                  labels={Object.fromEntries(availableWidgets.map(k => [k, WIDGETS[k].label]))}
+                  labels={Object.fromEntries(availableWidgets.map(k => [k, widgets[k].label]))}
                   onAdd={toggleWidget} />
               </div>
             )}
