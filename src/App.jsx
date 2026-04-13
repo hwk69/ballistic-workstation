@@ -942,11 +942,12 @@ function TblInput({ value, onChange }) {
 }
 
 function AppNavBar({ phase, navItems, sessionCount }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-50 w-full" style={{ background: "#111118", borderBottom: "1px solid #222230" }}>
-      <nav className="mx-auto flex h-[52px] w-full max-w-6xl items-stretch justify-between px-6">
+      <nav className="mx-auto flex h-[52px] w-full max-w-6xl items-stretch justify-between px-4 sm:px-6">
         {/* Wordmark */}
-        <div className="flex items-center gap-3 shrink-0 pr-6" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="flex items-center gap-3 shrink-0 pr-4 sm:pr-6" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ color: "#FFDF00" }} className="shrink-0">
             <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
             <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.5"/>
@@ -955,11 +956,11 @@ function AppNavBar({ phase, navItems, sessionCount }) {
           </svg>
           <div className="flex items-center gap-1.5 leading-none">
             <span className="text-[11px] font-black tracking-[0.22em] uppercase px-1.5 py-0.5" style={{ background: "#FFDF00", color: "#000" }}>AXON</span>
-            <span className="text-[11px] font-bold tracking-[0.18em] uppercase" style={{ color: "rgba(255,255,255,0.55)" }}>BALLISTIC</span>
+            <span className="text-[11px] font-bold tracking-[0.18em] uppercase hidden sm:inline" style={{ color: "rgba(255,255,255,0.55)" }}>BALLISTIC</span>
           </div>
         </div>
-        {/* Nav items */}
-        <div className="flex items-stretch flex-1 pl-2">
+        {/* Nav items — desktop */}
+        <div className="hidden md:flex items-stretch flex-1 pl-2">
           {navItems.map(item => {
             const isActive = phase === item.ph;
             return (
@@ -981,13 +982,56 @@ function AppNavBar({ phase, navItems, sessionCount }) {
             );
           })}
         </div>
-        {/* Session count */}
-        <div className="flex items-center shrink-0 pl-5" style={{ borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+        {/* Session count — desktop */}
+        <div className="hidden md:flex items-center shrink-0 pl-5" style={{ borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
           <span className="text-[10px] font-bold tracking-[0.16em] uppercase" style={{ color: "rgba(255,255,255,0.22)" }}>
             {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
           </span>
         </div>
+        {/* Hamburger — mobile */}
+        <button
+          className="md:hidden flex items-center ml-auto bg-transparent border-none cursor-pointer p-2"
+          onClick={() => setMenuOpen(o => !o)}
+          aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            {menuOpen
+              ? <path d="M5 5L15 15M15 5L5 15" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
+              : <path d="M3 5h14M3 10h14M3 15h14" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round"/>}
+          </svg>
+        </button>
       </nav>
+      {/* Mobile dropdown */}
+      {menuOpen && (
+        <div className="md:hidden border-t border-white/5" style={{ background: "#111118" }}>
+          <div className="flex flex-col px-4 py-2">
+            {navItems.map(item => {
+              const isActive = phase === item.ph;
+              return (
+                <button
+                  key={item.label}
+                  disabled={item.disabled}
+                  onClick={() => { if (!item.disabled) { item.onClick(); setMenuOpen(false); } }}
+                  className={cn(
+                    "text-left px-2 py-2.5 text-[12px] font-bold uppercase tracking-[0.1em] transition-colors duration-150 cursor-pointer",
+                    "bg-transparent border-0 outline-none rounded",
+                    item.disabled && "opacity-20 cursor-not-allowed pointer-events-none"
+                  )}
+                  style={{ color: isActive ? "#ffffff" : "rgba(255,255,255,0.38)" }}>
+                  {item.label}
+                  {isActive && (
+                    <span className="inline-block w-1.5 h-1.5 rounded-full ml-2 align-middle" style={{ background: "#FFDF00" }} />
+                  )}
+                </button>
+              );
+            })}
+            <div className="border-t border-white/5 mt-1 pt-2 pb-1 px-2">
+              <span className="text-[10px] font-bold tracking-[0.16em] uppercase" style={{ color: "rgba(255,255,255,0.22)" }}>
+                {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
