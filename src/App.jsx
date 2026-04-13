@@ -2374,7 +2374,20 @@ export default function App() {
           </div>
         </>
       );
-      if (key === 'metrics' && activeMetrics.length) return (
+      if (key === 'metrics') {
+        // Filter activeMetrics to only show metrics whose required fields are present
+        const metricRequires = { cep: ["x","y"], r90: ["x","y"], mr: ["x","y"], es: ["x","y"], sdX: ["x","y"], sdY: ["x","y"], sdR: ["x","y"], mpiX: ["x","y"], mpiY: ["x","y"], meanV: ["fps"], sdV: ["fps"], esV: ["fps"] };
+        const visibleMetrics = activeMetrics.filter(([_label, key2]) => {
+          const reqs = metricRequires[key2] || [];
+          return reqs.every(r => commonKeys.has(r));
+        });
+        // Add dynamic per-field metrics for common number fields (excluding x,y,fps)
+        const customNumFields = commonFields.filter(f => f.type === "number" && !["x","y","fps"].includes(f.key));
+        const customYesNoFields = commonFields.filter(f => f.type === "yesno");
+        if (!visibleMetrics.length && !customNumFields.length && !customYesNoFields.length) return (
+          <div className="py-6 text-center text-sm text-muted-foreground">No comparable metrics available for the selected sessions.</div>
+        );
+        return (
         <>
           <div className="export-hide flex justify-end mb-2">
             <button onClick={() => setCmpMetricsOpen(o => !o)}
@@ -2384,7 +2397,10 @@ export default function App() {
           </div>
           {cmpMetricsOpen && (
             <div className="export-hide flex flex-wrap gap-1.5 mb-4 p-3 bg-secondary rounded-lg border border-border">
-              {ALL_METRICS.map(([label]) => (
+              {ALL_METRICS.filter(([_label, key2]) => {
+                const reqs = metricRequires[key2] || [];
+                return reqs.every(r => commonKeys.has(r));
+              }).map(([label]) => (
                 <Toggle key={label} label={label} on={cmpMetrics.includes(label)} onToggle={() => toggleCmpMetric(label)} />
               ))}
             </div>
@@ -2400,7 +2416,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {activeMetrics.map(([label, key2, dec]) => {
+                {visibleMetrics.map(([label, key2, dec]) => {
                   const vals = resolved.map(r => r.stats[key2]);
                   const isLb = LOWER_BETTER.includes(label);
                   const best = isLb ? Math.min(...vals) : Math.max(...vals);
@@ -2417,11 +2433,40 @@ export default function App() {
                     </tr>
                   );
                 })}
+                {customNumFields.map(f => {
+                  const vals = resolved.map(r => {
+                    const fs = r.stats.fieldStats?.[f.key];
+                    return fs?.mean ?? null;
+                  });
+                  const validVals = vals.filter(v => v !== null);
+                  if (validVals.length < 2) return null;
+                  return (
+                    <tr key={`mean-${f.key}`} className="border-b border-border odd:bg-secondary/30">
+                      <td className="px-2.5 py-2.5 text-sm text-foreground">Mean {f.label}</td>
+                      {resolved.map((r, i) => {
+                        const v = r.stats.fieldStats?.[f.key]?.mean;
+                        return <td key={i} className="px-2.5 py-2.5 text-right font-mono font-semibold text-sm text-foreground">{v !== null && v !== undefined ? v.toFixed(1) : "—"}{f.unit ? ` ${f.unit}` : ""}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
+                {customYesNoFields.map(f => {
+                  return (
+                    <tr key={`yn-${f.key}`} className="border-b border-border odd:bg-secondary/30">
+                      <td className="px-2.5 py-2.5 text-sm text-foreground">{f.label}</td>
+                      {resolved.map((r, i) => {
+                        const fs = r.stats.fieldStats?.[f.key];
+                        return <td key={i} className="px-2.5 py-2.5 text-right font-mono font-semibold text-sm text-foreground">{fs ? `${fs.yes}/${fs.total} (${fs.pct}%)` : "—"}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>
-      );
+        );
+      }
       if (key === 'velCompare') return (
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
           {resolved.map((r, i) => (
