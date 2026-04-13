@@ -1317,7 +1317,7 @@ function buildWidgets(sessionFields) {
 const DEF_LAYOUT = Object.keys(STATIC_WIDGETS).filter(k => STATIC_WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
-const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6 };
+const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6, MATRIX: 7 };
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 function SecLabel({ children, className = "" }) {
@@ -1763,6 +1763,10 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [dbError, setDbError] = useState(null);
   const [libraryFilterSessionIds, setLibraryFilterSessionIds] = useState(null);
+  const [matrixRowVar, setMatrixRowVar] = useState(null);
+  const [matrixColVar, setMatrixColVar] = useState(null);
+  const [matrixMetric, setMatrixMetric] = useState(null);
+  const [matrixDetail, setMatrixDetail] = useState(null);
   const [pendingAttachments, setPendingAttachments] = useState({}); // { serial: File[] }
   const queueAttachment = useCallback((serial, files) => {
     setPendingAttachments(p => ({ ...p, [serial]: [...(p[serial] || []), ...files] }));
@@ -2123,6 +2127,7 @@ export default function App() {
     { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
     { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
     { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
+    { label: "Matrix",  ph: P.MATRIX,  disabled: log.length < 2, onClick: () => { setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setPhase(P.MATRIX); } },
     { label: "Library", ph: P.LIBRARY, onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
 
@@ -3233,6 +3238,14 @@ export default function App() {
       </AppShell>
     );
   }
+
+  // ─── MATRIX COMPARE ──────────────────────────────────────────────────────────
+  if (phase === P.MATRIX) return (
+    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+      <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-6">Matrix Compare</h1>
+      <p className="text-sm text-muted-foreground">Coming soon…</p>
+    </AppShell>
+  );
 
   // ─── LIBRARY ─────────────────────────────────────────────────────────────────
   if (phase === P.LIBRARY) return (
