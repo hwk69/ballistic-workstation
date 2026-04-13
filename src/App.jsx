@@ -3428,7 +3428,107 @@ export default function App() {
               </table>
             </div>
 
-            {/* Placeholder for detail panel — Task 3 */}
+            {/* Detail Panel */}
+            {matrixDetail && (() => {
+              const sessions = grid[matrixDetail.row]?.[matrixDetail.col] || [];
+              if (sessions.length === 0) return null;
+              const isSingle = sessions.length === 1;
+              const s = isSingle ? sessions[0] : null;
+              const stats = isSingle ? s.stats : (() => {
+                // Average stats across sessions
+                const keys = ["cep", "r90", "mr", "es", "sdX", "sdY", "sdR", "meanV", "sdV", "esV"];
+                const avg = {};
+                for (const k of keys) {
+                  const vals = sessions.map(x => x.stats?.[k]).filter(v => v != null && !isNaN(v));
+                  avg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+                }
+                avg.hasXY = sessions.some(x => x.stats?.hasXY);
+                avg.hasFps = sessions.some(x => x.stats?.hasFps);
+                avg.n = Math.round(sessions.reduce((a, x) => a + (x.stats?.n || 0), 0) / sessions.length);
+                // Average field stats
+                avg.fieldStats = {};
+                const allFk = new Set();
+                sessions.forEach(x => Object.keys(x.stats?.fieldStats || {}).forEach(k => allFk.add(k)));
+                for (const fk of allFk) {
+                  const first = sessions.find(x => x.stats?.fieldStats?.[fk])?.stats.fieldStats[fk];
+                  if (!first) continue;
+                  if (first.type === "number") {
+                    const vals = sessions.map(x => x.stats?.fieldStats?.[fk]?.mean).filter(v => v != null);
+                    avg.fieldStats[fk] = { ...first, mean: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null };
+                  } else if (first.type === "yesno") {
+                    const vals = sessions.map(x => x.stats?.fieldStats?.[fk]?.pct).filter(v => v != null);
+                    avg.fieldStats[fk] = { ...first, pct: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0 };
+                  }
+                }
+                return avg;
+              })();
+
+              return (
+                <CardSection title={isSingle ? (s.config.sessionName || "Session") : `Average of ${sessions.length} sessions`} className="mb-6">
+                  {isSingle && (
+                    <div className="flex items-center gap-4 mb-4 text-sm text-muted-foreground">
+                      <span>{new Date(s.date).toLocaleDateString()}</span>
+                      <span>{s.shots.length} shots</span>
+                    </div>
+                  )}
+                  {!isSingle && (
+                    <div className="mb-4">
+                      <div className="text-xs text-muted-foreground mb-2">Contributing sessions:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {sessions.map((x, i) => (
+                          <span key={i} className="text-xs bg-secondary px-2 py-0.5 rounded border border-border text-foreground">
+                            {x.config.sessionName || "Session"} — {new Date(x.date).toLocaleDateString()}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stat block */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {stats.hasXY && [
+                      ["CEP (50%)", stats.cep, 3, "in"],
+                      ["R90", stats.r90, 3, "in"],
+                      ["Mean Radius", stats.mr, 3, "in"],
+                      ["Ext. Spread", stats.es, 3, "in"],
+                      ["SD X", stats.sdX, 3, "in"],
+                      ["SD Y", stats.sdY, 3, "in"],
+                    ].map(([label, val, dec, unit]) => (
+                      <div key={label} className="bg-secondary/50 rounded-md p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">{label}</div>
+                        <div className="text-sm font-semibold text-foreground">{val != null ? val.toFixed(dec) + " " + unit : "—"}</div>
+                      </div>
+                    ))}
+                    {stats.hasFps && [
+                      ["Mean FPS", stats.meanV, 1, "fps"],
+                      ["SD FPS", stats.sdV, 1, "fps"],
+                      ["ES FPS", stats.esV, 1, "fps"],
+                    ].map(([label, val, dec, unit]) => (
+                      <div key={label} className="bg-secondary/50 rounded-md p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">{label}</div>
+                        <div className="text-sm font-semibold text-foreground">{val != null ? val.toFixed(dec) + " " + unit : "—"}</div>
+                      </div>
+                    ))}
+                    {Object.entries(stats.fieldStats || {}).map(([fk, fs]) => (
+                      <div key={fk} className="bg-secondary/50 rounded-md p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">{fs.label}</div>
+                        <div className="text-sm font-semibold text-foreground">
+                          {fs.type === "number" && fs.mean != null ? fs.mean.toFixed(2) + (fs.unit ? " " + fs.unit : "") : ""}
+                          {fs.type === "yesno" ? fs.pct + "%" : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* View Session button */}
+                  {isSingle && (
+                    <div className="mt-4">
+                      <Btn v="secondary" onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }}>View Session</Btn>
+                    </div>
+                  )}
+                </CardSection>
+              );
+            })()}
           </>
         )}
       </AppShell>
