@@ -1567,7 +1567,7 @@ export default function App() {
     }
     e.target.value = "";
   };
-  const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); setEsNewShot({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" }); setEsShotEdit(null); setPhase(P.EDIT); };
+  const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); const sf = s.config.fields || fields; setEsNewShot(Object.fromEntries(sf.map(f => [f.key, ""]))); setEsShotEdit(null); setPhase(P.EDIT); };
   const saveEditSession = async () => {
     const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | ");
     try {
@@ -1580,7 +1580,34 @@ export default function App() {
       setDbError('Failed to update session: ' + err.message);
     }
   };
-  const esAddShot = () => { const fps = parseFloat(esNewShot.fps), x = parseFloat(esNewShot.x), y = parseFloat(esNewShot.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => [...p, { fps, x, y, weight: esNewShot.weight, serial: makeSerial(esCfg, p.length + 1, 0), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setEsNewShot(p => ({ fps: "", x: "", y: "", weight: p.weight })); };
+  const esAddShot = () => {
+    const sf = esCfg.fields || fields;
+    for (const f of sf) {
+      if (f.required) {
+        if (f.type === "number" && isNaN(parseFloat(esNewShot[f.key]))) return;
+        if (f.type !== "number" && !esNewShot[f.key] && esNewShot[f.key] !== false) return;
+      }
+    }
+    const data = {};
+    for (const f of sf) {
+      const v = esNewShot[f.key];
+      if (f.type === "number") data[f.key] = v !== "" ? parseFloat(v) : null;
+      else if (f.type === "yesno") data[f.key] = v === "yes" ? true : v === "no" ? false : null;
+      else data[f.key] = v || null;
+    }
+    setEsShots(p => [...p, {
+      fps: data.fps ?? null, x: data.x ?? null, y: data.y ?? null, weight: data.weight ?? null,
+      data,
+      serial: makeSerial(esCfg, p.length + 1, 0),
+      shotNum: p.length + 1,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }]);
+    setEsNewShot(prev => {
+      const next = {};
+      for (const f of sf) { next[f.key] = f.type === "number" ? prev[f.key] : ""; }
+      return next;
+    });
+  };
   const esDelShot = i => setEsShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const esStartEdit = i => { setEsShotEdit(i); setEsShotEditVal({ ...esShots[i] }); };
   const esSaveEdit = () => { if (esShotEdit === null) return; const fps = parseFloat(esShotEditVal.fps), x = parseFloat(esShotEditVal.x), y = parseFloat(esShotEditVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => p.map((s, i) => i === esShotEdit ? { ...s, ...esShotEditVal, fps, x, y } : s)); setEsShotEdit(null); };
