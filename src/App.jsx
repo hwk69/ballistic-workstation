@@ -791,6 +791,79 @@ function FpsTrack({ shots, width = 360, color = G }) {
   );
 }
 
+function NumberFieldChart({ shots, fieldKey, label, unit, width = 360, color = G, mode = "tracking", onModeChange }) {
+  const ref = useRef();
+  const [tip, setTip] = useState(null);
+  const vals = useMemo(() =>
+    shots.map((s, i) => ({ i: i + 1, v: (s.data || s)[fieldKey] }))
+      .filter(d => d.v !== null && d.v !== undefined && !isNaN(d.v)),
+    [shots, fieldKey]
+  );
+
+  useEffect(() => {
+    if (!ref.current || vals.length < 2) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+
+    if (mode === "tracking") {
+      // Line chart: value over shot number (same pattern as FpsTrack)
+      const m = { t: 15, r: 15, b: 30, l: 42 }, w = width - m.l - m.r, h = 125 - m.t - m.b;
+      const x = d3.scaleLinear().domain([1, vals.length]).range([0, w]);
+      const y = d3.scaleLinear().domain([d3.min(vals, d => d.v) - (d3.max(vals, d => d.v) - d3.min(vals, d => d.v)) * 0.1 || 1, d3.max(vals, d => d.v) + (d3.max(vals, d => d.v) - d3.min(vals, d => d.v)) * 0.1 || 1]).range([h, 0]);
+      const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+      gg.append("g").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(Math.min(vals.length, 10)).tickFormat(d3.format("d"))).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.append("g").call(d3.axisLeft(y).ticks(4)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
+      const mv = mean(vals.map(d => d.v));
+      gg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(mv)).attr("y2", y(mv))
+        .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", "4,3").attr("stroke-opacity", .45);
+      gg.append("path").datum(vals).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.5)
+        .attr("d", d3.line().x(d => x(d.i)).y(d => y(d.v)).curve(d3.curveMonotoneX));
+      gg.selectAll("circle").data(vals).join("circle")
+        .attr("cx", d => x(d.i)).attr("cy", d => y(d.v)).attr("r", 4)
+        .attr("fill", color).attr("stroke", "rgba(255,255,255,0.3)").attr("stroke-width", .4)
+        .attr("cursor", "crosshair")
+        .on("mouseenter", function(ev, d) {
+          d3.select(this).attr("r", 6);
+          setTip({ x: ev.clientX, y: ev.clientY, lines: [`Shot\u00a0#${d.i}`, `${label}\u00a0${d.v}${unit ? "\u00a0" + unit : ""}`] });
+        })
+        .on("mousemove", (ev) => setTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t))
+        .on("mouseleave", function() { d3.select(this).attr("r", 4); setTip(null); });
+      svg.append("text").attr("x", width / 2).attr("y", 122).attr("text-anchor", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text(`Shot # → ${label}${unit ? " (" + unit + ")" : ""}`);
+    } else {
+      // Histogram: distribution of values (same pattern as VelHist)
+      const m = { t: 20, r: 15, b: 34, l: 38 }, w = width - m.l - m.r, h = 145 - m.t - m.b;
+      const raw = vals.map(d => d.v);
+      const x = d3.scaleLinear().domain([Math.min(...raw) - (Math.max(...raw) - Math.min(...raw)) * 0.1 || -1, Math.max(...raw) + (Math.max(...raw) - Math.min(...raw)) * 0.1 || 1]).range([0, w]);
+      const bins = d3.bin().domain(x.domain()).thresholds(Math.min(vals.length, 14))(raw);
+      const y = d3.scaleLinear().domain([0, d3.max(bins, d => d.length)]).nice().range([h, 0]);
+      const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+      gg.selectAll("rect").data(bins).join("rect")
+        .attr("x", d => x(d.x0) + 1).attr("y", d => y(d.length))
+        .attr("width", d => Math.max(0, x(d.x1) - x(d.x0) - 2)).attr("height", d => h - y(d.length))
+        .attr("fill", color).attr("fill-opacity", .7).attr("rx", 2);
+      gg.append("g").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(5)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.append("g").call(d3.axisLeft(y).ticks(3)).selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+      gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
+      // KDE curve
+      const bw = std(raw) * .6 || 5;
+      const kde = x.ticks(50).map(t => [t, raw.reduce((s2, vi) => s2 + Math.exp(-.5 * ((t - vi) / bw) ** 2), 0) / (raw.length * bw * Math.sqrt(2 * Math.PI))]);
+      const yK = d3.scaleLinear().domain([0, d3.max(kde, d => d[1])]).range([h, 0]);
+      gg.append("path").datum(kde).attr("fill", "none").attr("stroke", "rgba(255,255,255,0.45)").attr("stroke-width", 1.5)
+        .attr("d", d3.line().x(d => x(d[0])).y(d => yK(d[1])).curve(d3.curveBasis));
+      svg.append("text").attr("x", width / 2).attr("y", 142).attr("text-anchor", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 10).attr("font-weight", "500").text(`${label}${unit ? " (" + unit + ")" : ""}`);
+    }
+  }, [vals, width, color, mode, label, unit]);
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <svg ref={ref} width={width} height={mode === "tracking" ? 125 : 145} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
+}
+
 function XYTrack({ shots, width = 360 }) {
   const ref = useRef();
   useEffect(() => {
