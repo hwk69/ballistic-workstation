@@ -864,6 +864,55 @@ function NumberFieldChart({ shots, fieldKey, label, unit, width = 360, color = G
   );
 }
 
+function DonutChart({ yesCount, noCount, total, label, width = 360, color = G }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!ref.current || total === 0) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+    const size = Math.min(width, 180);
+    const radius = size / 2 - 10;
+    const innerRadius = radius * 0.55;
+    const gg = svg.append("g").attr("transform", `translate(${width / 2},${90})`);
+
+    const data = [
+      { label: "Yes", value: yesCount, color: color },
+      { label: "No", value: noCount, color: "rgba(255,255,255,0.15)" },
+    ].filter(d => d.value > 0);
+
+    const pie = d3.pie().value(d => d.value).sort(null).padAngle(0.03);
+    const arc = d3.arc().innerRadius(innerRadius).outerRadius(radius);
+
+    gg.selectAll("path").data(pie(data)).join("path")
+      .attr("d", arc)
+      .attr("fill", d => d.data.color)
+      .attr("stroke", "rgba(0,0,0,0.3)")
+      .attr("stroke-width", 1);
+
+    // Center percentage text
+    const pct = total > 0 ? Math.round(yesCount / total * 100) : 0;
+    gg.append("text").attr("text-anchor", "middle").attr("dy", "-0.1em")
+      .attr("fill", "#fff").attr("font-size", 22).attr("font-weight", "700")
+      .text(`${pct}%`);
+    gg.append("text").attr("text-anchor", "middle").attr("dy", "1.3em")
+      .attr("fill", TICK_CLR).attr("font-size", 10)
+      .text("Yes");
+
+    // Legend below
+    const legend = svg.append("g").attr("transform", `translate(${width / 2 - 60},${175})`);
+    const items = [
+      { label: `Yes: ${yesCount}`, color: color },
+      { label: `No: ${noCount}`, color: "rgba(255,255,255,0.15)" },
+    ];
+    items.forEach((item, i) => {
+      const g = legend.append("g").attr("transform", `translate(${i * 80},0)`);
+      g.append("rect").attr("width", 10).attr("height", 10).attr("rx", 2).attr("fill", item.color);
+      g.append("text").attr("x", 14).attr("y", 9).attr("fill", TICK_CLR).attr("font-size", 10).text(item.label);
+    });
+  }, [yesCount, noCount, total, width, color]);
+
+  return <svg ref={ref} width={width} height={200} style={{ background: CHART_BG, borderRadius: 10 }} />;
+}
+
 function XYTrack({ shots, width = 360 }) {
   const ref = useRef();
   useEffect(() => {
