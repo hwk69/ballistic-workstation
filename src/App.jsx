@@ -978,7 +978,7 @@ function GroupedBarChart({ sessions, fieldKey, options, width = 360 }) {
     const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
 
     // X axis at top
-    gg.append("g").call(d3.axisTop(x).ticks(4).tickFormat(d3.format("d")))
+    gg.append("g").call(d3.axisTop(x).ticks(Math.min(maxCount, 4)).tickFormat(d3.format("d")))
       .selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
     gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
 
