@@ -786,20 +786,22 @@ function XYTrack({ shots, width = 360 }) {
   return <svg ref={ref} width={width} height={125} style={{ background: CHART_BG, borderRadius: 10 }} />;
 }
 
-function ShotTable({ shots }) {
-  const hdrs = ["#","Serial","FPS","X","Y","Wt","Rad","Time"];
-  const right = ["FPS","X","Y","Wt","Rad"];
+function ShotTable({ shots, session }) {
+  const sf = session?.config?.fields || DEFAULT_FIELDS;
   return (
     <div className="overflow-auto max-h-52">
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="border-b border-border">
-            {hdrs.map(h => (
-              <th key={h} className={cn(
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+            {sf.map(f => (
+              <th key={f.key} className={cn(
                 "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                right.includes(h) ? "text-right" : "text-left"
-              )}>{h}</th>
+                f.type === "number" ? "text-right" : "text-left"
+              )}>{f.label}</th>
             ))}
+            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
           </tr>
         </thead>
         <tbody>
@@ -807,11 +809,19 @@ function ShotTable({ shots }) {
             <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40">
               <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
               <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.fps}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.x}</td>
-              <td className="text-foreground px-2.5 py-1.5 text-right font-mono">{s.y}</td>
-              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{s.weight || "—"}</td>
-              <td className="text-muted-foreground px-2.5 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
+              {sf.map(f => {
+                const val = (s.data || s)[f.key];
+                let display = "";
+                if (val === true) display = "Yes";
+                else if (val === false) display = "No";
+                else if (val !== null && val !== undefined) display = String(val);
+                return (
+                  <td key={f.key} className={cn(
+                    "px-2.5 py-1.5",
+                    f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                  )}>{display || "—"}</td>
+                );
+              })}
               <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
             </tr>
           ))}
