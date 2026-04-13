@@ -3340,11 +3340,11 @@ export default function App() {
     }
 
     // Rank values for color coding
-    const sorted = [...allValues].sort((a, b) => isLowerBetter ? a - b : b - a);
+    const uniqueSorted = [...new Set(allValues)].sort((a, b) => isLowerBetter ? a - b : b - a);
     const getColor = (val) => {
       if (val == null) return "rgba(255,255,255,0.03)";
-      const rank = sorted.indexOf(val);
-      const t = sorted.length > 1 ? rank / (sorted.length - 1) : 0;
+      const rank = uniqueSorted.indexOf(val);
+      const t = uniqueSorted.length > 1 ? rank / (uniqueSorted.length - 1) : 0;
       const r = Math.round(34 + (239 - 34) * t);
       const g = Math.round(197 + (68 - 197) * t);
       const b = Math.round(94 + (68 - 94) * t);
@@ -3416,9 +3416,9 @@ export default function App() {
                             style={{ background: getColor(cell.value) }}
                             onClick={() => cell.count > 0 ? setMatrixDetail(isSelected ? null : { row: rv, col: cv }) : null}
                           >
-                            <div className="text-sm font-semibold text-foreground">{fmtVal(cell.value)}</div>
+                            {cell.count > 0 && <div className="text-sm font-semibold text-foreground">{fmtVal(cell.value)}</div>}
                             {cell.count > 1 && <div className="text-[10px] text-muted-foreground mt-0.5">{cell.count} sessions</div>}
-                            {cell.count === 0 && <div className="text-[10px] text-muted-foreground">—</div>}
+                            {cell.count === 0 && <div className="text-sm text-muted-foreground">—</div>}
                           </td>
                         );
                       })}
