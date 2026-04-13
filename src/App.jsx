@@ -947,6 +947,189 @@ function TblInput({ value, onChange }) {
   );
 }
 
+// ─── Measurement Fields Card ────────────────────────────────────────────────
+function MeasurementFieldsCard({ fields, onUpdate }) {
+  const [adding, setAdding] = useState(false);
+  const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
+  const [newOption, setNewOption] = useState("");
+
+  const typeLabels = { number: "Number", yesno: "Yes / No", text: "Text", dropdown: "Dropdown" };
+
+  const addField = () => {
+    const name = newField.name.trim();
+    if (!name) return;
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+    if (fields.find(f => f.key === key)) return;
+    const field = {
+      key,
+      label: name,
+      type: newField.type,
+      required: newField.required,
+      options: newField.type === "dropdown" ? newField.options : [],
+      unit: newField.type === "number" ? newField.unit.trim() : "",
+    };
+    onUpdate([...fields, field]);
+    setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
+    setNewOption("");
+    setAdding(false);
+  };
+
+  const removeField = (key) => {
+    onUpdate(fields.filter(f => f.key !== key));
+  };
+
+  const addDropdownOption = () => {
+    const opt = newOption.trim();
+    if (!opt || newField.options.includes(opt)) return;
+    setNewField(p => ({ ...p, options: [...p.options, opt] }));
+    setNewOption("");
+  };
+
+  const removeDropdownOption = (opt) => {
+    setNewField(p => ({ ...p, options: p.options.filter(o => o !== opt) }));
+  };
+
+  return (
+    <CardSection title="Measurement Fields" className="mb-4">
+      <p className="text-xs text-muted-foreground mb-3">
+        Define what data gets recorded per shot. These fields appear on the Fire page.
+      </p>
+
+      {/* Field list */}
+      {fields.length > 0 ? (
+        <div className="flex flex-col gap-2 mb-4">
+          {fields.map(f => (
+            <div key={f.key} className="flex items-center gap-2 bg-secondary border border-border rounded-lg px-3 py-2">
+              <span className="text-sm font-medium text-foreground flex-1">{f.label}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">
+                {typeLabels[f.type] || f.type}
+              </span>
+              {f.unit && (
+                <span className="text-[10px] text-muted-foreground">{f.unit}</span>
+              )}
+              {f.required && (
+                <span className="text-[10px] font-bold text-primary">REQ</span>
+              )}
+              <button
+                onClick={() => removeField(f.key)}
+                className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer bg-transparent border-none leading-none text-base ml-1"
+                aria-label={`Remove ${f.label}`}>×</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground/60 italic mb-4 py-3 text-center border border-dashed border-border rounded-lg">
+          No measurement fields configured. Add at least one field before starting a session.
+        </div>
+      )}
+
+      {/* Add field form */}
+      {adding ? (
+        <div className="bg-background border border-border rounded-lg p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Field Name</label>
+              <input
+                value={newField.name}
+                onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") addField(); if (e.key === "Escape") { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); } }}
+                placeholder="e.g. Hole Size"
+                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                autoFocus />
+            </div>
+            <div className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</label>
+              <select
+                value={newField.type}
+                onChange={e => setNewField(p => ({ ...p, type: e.target.value }))}
+                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary">
+                <option value="number">Number</option>
+                <option value="yesno">Yes / No</option>
+                <option value="text">Text</option>
+                <option value="dropdown">Dropdown</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Number-specific: unit */}
+          {newField.type === "number" && (
+            <div className="flex flex-col mb-3">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Unit (optional)</label>
+              <input
+                value={newField.unit}
+                onChange={e => setNewField(p => ({ ...p, unit: e.target.value }))}
+                placeholder="e.g. mm, in, fps"
+                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary max-w-[200px]" />
+            </div>
+          )}
+
+          {/* Dropdown-specific: options */}
+          {newField.type === "dropdown" && (
+            <div className="flex flex-col mb-3">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options</label>
+              {newField.options.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {newField.options.map(opt => (
+                    <span key={opt} className="inline-flex items-center gap-1 bg-secondary border border-border rounded px-2 py-0.5 text-xs">
+                      {opt}
+                      <button onClick={() => removeDropdownOption(opt)}
+                        className="text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none text-xs leading-none">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <input
+                  value={newOption}
+                  onChange={e => setNewOption(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addDropdownOption(); } }}
+                  placeholder="Add an option…"
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary max-w-[220px]" />
+                <button onClick={addDropdownOption}
+                  disabled={!newOption.trim()}
+                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer border-none",
+                    newOption.trim() ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground opacity-50 cursor-not-allowed"
+                  )}>Add</button>
+              </div>
+            </div>
+          )}
+
+          {/* Required checkbox */}
+          <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={newField.required}
+              onChange={e => setNewField(p => ({ ...p, required: e.target.checked }))}
+              className="rounded border-border" />
+            <span className="text-xs text-muted-foreground">Required field</span>
+          </label>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button onClick={addField}
+              disabled={!newField.name.trim() || (newField.type === "dropdown" && newField.options.length === 0)}
+              className={cn("px-4 py-2 rounded-md text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-none",
+                newField.name.trim() && !(newField.type === "dropdown" && newField.options.length === 0)
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground opacity-50 cursor-not-allowed"
+              )}>Add Field</button>
+            <button onClick={() => { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setNewOption(""); }}
+              className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)}
+          className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
+          style={{ color: "#6b6b7e" }}
+          onMouseEnter={e => e.target.style.color = "#111118"}
+          onMouseLeave={e => e.target.style.color = "#6b6b7e"}>
+          + Add Field
+        </button>
+      )}
+    </CardSection>
+  );
+}
+
 function AppNavBar({ phase, navItems, sessionCount }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -1279,6 +1462,10 @@ export default function App() {
   }, []);
   const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await db.saveSettings({ vars: nv }); setOpts(p => { const n = { ...p, [key]: [] }; db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message)); return n; }); setNewVarName(""); setAdding(false); };
   const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); db.saveSettings({ vars: n }).catch(err => setDbError('Var save failed: ' + err.message)); return n; }); };
+  const updateFields = useCallback(async (newFields) => {
+    setFields(newFields);
+    try { await db.saveSettings({ fields: newFields }); } catch (err) { setDbError('Fields save failed: ' + err.message); }
+  }, []);
   const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
@@ -1436,6 +1623,8 @@ export default function App() {
         </div>
       </CardSection>
 
+      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} />
+
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col">
@@ -1462,7 +1651,7 @@ export default function App() {
       )}
 
       <Btn onClick={() => { setPhase(P.FIRE); setTimeout(() => fpsRef.current?.focus(), 100); }}
-        disabled={!cfg.rifleRate || !cfg.sleeveType || !total} cls="w-full py-3 text-base">
+        disabled={!cfg.rifleRate || !cfg.sleeveType || !total || fields.length === 0} cls="w-full py-3 text-base">
         Begin Firing Session
       </Btn>
 
