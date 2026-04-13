@@ -1727,7 +1727,7 @@ export default function App() {
   const [customPresets, setCustomPresets] = useState([]);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
-  const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
+  const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null); const cmpDropdownRef = useRef();
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
@@ -1841,6 +1841,19 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); setCmpDropdownOpen(false); setCmpSearch(""); } }, [phase]);
+
+  // Close compare dropdown on outside click
+  useEffect(() => {
+    if (!cmpDropdownOpen) return;
+    const handler = (e) => {
+      if (cmpDropdownRef.current && !cmpDropdownRef.current.contains(e.target)) {
+        setCmpDropdownOpen(false);
+        setCmpSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [cmpDropdownOpen]);
 
   const saveLayoutAll = useCallback(async upd => {
     const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
@@ -2947,20 +2960,6 @@ export default function App() {
       }
       return null;
     }
-
-    // Close dropdown on outside click
-    const cmpDropdownRef = useRef();
-    useEffect(() => {
-      if (!cmpDropdownOpen) return;
-      const handler = (e) => {
-        if (cmpDropdownRef.current && !cmpDropdownRef.current.contains(e.target)) {
-          setCmpDropdownOpen(false);
-          setCmpSearch("");
-        }
-      };
-      document.addEventListener("mousedown", handler);
-      return () => document.removeEventListener("mousedown", handler);
-    }, [cmpDropdownOpen]);
 
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
