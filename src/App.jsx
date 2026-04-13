@@ -1303,7 +1303,7 @@ function TblInput({ value, onChange }) {
 }
 
 // ─── Measurement Fields Card ────────────────────────────────────────────────
-function MeasurementFieldsCard({ fields, onUpdate }) {
+function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCustomPreset }) {
   const [adding, setAdding] = useState(false);
   const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
   const [newOption, setNewOption] = useState("");
@@ -1312,13 +1312,15 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
   const typeLabels = { number: "Number", yesno: "Yes / No", text: "Text", dropdown: "Dropdown" };
 
   // Standard field presets — selecting one auto-fills name, type, required, unit
-  const PRESETS = [
+  const STANDARD_PRESETS = [
     { key: "fps", label: "FPS", type: "number", required: true, unit: "fps" },
     { key: "x", label: "X", type: "number", required: true, unit: "in" },
     { key: "y", label: "Y", type: "number", required: true, unit: "in" },
     { key: "weight", label: "Weight", type: "number", required: false, unit: "g" },
   ];
-  const availablePresets = PRESETS.filter(p => !fields.some(f => f.key === p.key));
+  const ALL_PRESETS = [...STANDARD_PRESETS, ...customPresets.filter(cp => !STANDARD_PRESETS.some(sp => sp.key === cp.key))];
+  const availableStandard = STANDARD_PRESETS.filter(p => !fields.some(f => f.key === p.key));
+  const availableCustom = customPresets.filter(cp => !fields.some(f => f.key === cp.key) && !STANDARD_PRESETS.some(sp => sp.key === cp.key));
 
   const selectPreset = (key) => {
     if (key === "__custom__") {
@@ -1326,10 +1328,10 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
       setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
       return;
     }
-    const p = PRESETS.find(x => x.key === key);
+    const p = ALL_PRESETS.find(x => x.key === key);
     if (p) {
       setCustomName(false);
-      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit, options: [] });
+      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit || "", options: p.options || [] });
     }
   };
 
@@ -1347,6 +1349,7 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
       unit: newField.type === "number" ? newField.unit.trim() : "",
     };
     onUpdate([...fields, field]);
+    if (onAddCustomPreset) onAddCustomPreset(field);
     setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
     setNewOption("");
     setCustomName(false);
@@ -1410,14 +1413,25 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
               <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Field Name</label>
               {!customName ? (
                 <select
-                  value={newField.name ? PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
+                  value={newField.name ? ALL_PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
                   onChange={e => selectPreset(e.target.value)}
                   className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
                   autoFocus>
                   <option value="">— Select field —</option>
-                  {availablePresets.map(p => (
-                    <option key={p.key} value={p.key}>{p.label} ({p.unit})</option>
-                  ))}
+                  {availableStandard.length > 0 && (
+                    <optgroup label="Standard">
+                      {availableStandard.map(p => (
+                        <option key={p.key} value={p.key}>{p.label}{p.unit ? ` (${p.unit})` : ""}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {availableCustom.length > 0 && (
+                    <optgroup label="Saved">
+                      {availableCustom.map(p => (
+                        <option key={p.key} value={p.key}>{p.label}{p.unit ? ` (${p.unit})` : ""}{p.type !== "number" ? ` · ${p.type}` : ""}</option>
+                      ))}
+                    </optgroup>
+                  )}
                   <option value="__custom__">Custom…</option>
                 </select>
               ) : (
