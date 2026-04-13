@@ -2269,11 +2269,34 @@ export default function App() {
     const resolved = cmpSlots.map(sl => {
       const s = log.find(x => x.id === sl.id);
       if (!s) return null;
-      const vs = s.shots.filter(sh => !isNaN(sh.fps) && !isNaN(sh.x) && !isNaN(sh.y));
-      return { ...sl, session: s, shots: vs, stats: s.stats };
+      const sf = s.config.fields || fields;
+      const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
+      const vs = s.shots.filter(sh => {
+        const d = sh.data || sh;
+        return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+      });
+      return { ...sl, session: s, shots: vs, stats: s.stats, fields: sf };
     }).filter(Boolean);
+    // Compute common fields across all selected sessions
+    const commonFields = resolved.length > 0
+      ? resolved[0].fields.filter(f => resolved.every(r => r.fields.some(rf => rf.key === f.key)))
+      : [];
+    const commonKeys = new Set(commonFields.map(f => f.key));
+    const commonHasXY = commonKeys.has("x") && commonKeys.has("y");
+    const commonHasFps = commonKeys.has("fps");
     const activeMetrics = ALL_METRICS.filter(m => cmpMetrics.includes(m[0]));
-    const CMP_WIDGET_DEFS = { overlay: { label: "Dispersion Overlay" }, metrics: { label: "Metrics Table" }, velCompare: { label: "Velocity Comparison" }, shotLog: { label: "Shot Log" }, attachments: { label: "Attachments" }, rankings: { label: "Rankings" } };
+    const CMP_WIDGET_DEFS = {
+      overlay:    { label: "Dispersion Overlay", requires: ["x", "y"] },
+      metrics:    { label: "Metrics Table", requires: [] },
+      velCompare: { label: "Velocity Comparison", requires: ["fps"] },
+      shotLog:    { label: "Shot Log", requires: [] },
+      attachments:{ label: "Attachments", requires: [] },
+      rankings:   { label: "Rankings", requires: [] },
+    };
+    const availableCmpWidgets = Object.keys(CMP_WIDGET_DEFS).filter(k => {
+      if (k === 'rankings') return commonHasFps || commonHasXY;
+      return CMP_WIDGET_DEFS[k].requires.every(r => commonKeys.has(r));
+    });
     const mainItems    = cmpLayout.filter(item => item.zone === 'main');
     const sidebarItems = cmpLayout.filter(item => item.zone === 'sidebar');
     const fullItems    = cmpLayout.filter(item => item.zone === 'full');
