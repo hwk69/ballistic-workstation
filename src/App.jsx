@@ -1642,6 +1642,7 @@ export default function App() {
   const [opts, setOpts]     = useState(DEF_OPTS);
   const [vars, setVars]     = useState(DEF_VARS);
   const [fields, setFields] = useState(DEFAULT_FIELDS);
+  const [customPresets, setCustomPresets] = useState([]);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null);
@@ -1715,6 +1716,7 @@ export default function App() {
       }
       if (settings.vars?.length) setVars(settings.vars);
       if (settings.fields?.length) setFields(settings.fields);
+      if (settings.custom_presets?.length) setCustomPresets(settings.custom_presets);
       if (settings.layout) {
         if (settings.layout.layout)     setLayout(settings.layout.layout);
         if (settings.layout.dispOpts)   setDispOpts(settings.layout.dispOpts);
@@ -1866,6 +1868,15 @@ export default function App() {
   const updateFields = useCallback(async (newFields) => {
     setFields(newFields);
     try { await db.saveSettings({ fields: newFields }); } catch (err) { setDbError('Fields save failed: ' + err.message); }
+  }, []);
+  const addCustomPreset = useCallback(async (field) => {
+    if (["fps", "x", "y", "weight"].includes(field.key)) return;
+    setCustomPresets(prev => {
+      if (prev.some(p => p.key === field.key)) return prev;
+      const updated = [...prev, { key: field.key, label: field.label, type: field.type, required: field.required, unit: field.unit || "", options: field.options || [] }];
+      db.saveSettings({ custom_presets: updated }).catch(err => setDbError('Preset save failed: ' + err.message));
+      return updated;
+    });
   }, []);
   const addShot = useCallback(() => {
     // Validate required fields
@@ -2094,7 +2105,7 @@ export default function App() {
         </div>
       </CardSection>
 
-      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} />
+      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} customPresets={customPresets} onAddCustomPreset={addCustomPreset} />
 
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
