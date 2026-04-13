@@ -820,7 +820,7 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
       {children}
       {/* Resize handle */}
       <div onMouseDown={onResizeDown}
-        className="absolute bottom-2 right-2 z-10 cursor-se-resize text-muted-foreground/25 hover:text-muted-foreground/70 transition-colors select-none"
+        className="absolute bottom-2 right-2 z-10 cursor-se-resize text-muted-foreground/25 hover:text-muted-foreground/70 transition-colors select-none hidden sm:block"
         title="Drag to resize">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M10 1L1 10M7.5 1L1 7.5M10 4L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -1040,7 +1040,7 @@ function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, db
   return (
     <div className="min-h-screen bg-background text-foreground">
       <AppNavBar phase={phase} navItems={navItems} sessionCount={sessionCount} />
-      <main style={{ maxWidth: maxW, margin: "0 auto", padding: "40px 28px 60px" }}>
+      <main className="px-4 pt-5 pb-10 sm:px-7 sm:pt-10 sm:pb-15" style={{ maxWidth: maxW, margin: "0 auto" }}>
         {children}
       </main>
       {dbError && (
@@ -1380,7 +1380,7 @@ export default function App() {
       <PageHead title="New Session" sub="Configure variables, then fire and analyze" />
 
       <CardSection title="Configuration" className="mb-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {vars.map(vr => (
             <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
           ))}
@@ -1425,7 +1425,7 @@ export default function App() {
       </CardSection>
 
       <CardSection title="Session Details" className="mb-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col">
             <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Session Name</label>
             <input value={cfg.sessionName} onChange={e => up("sessionName", e.target.value)} placeholder="Auto-generated if blank" className={inp} />
@@ -1514,7 +1514,7 @@ export default function App() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <CardSection title="Live Dispersion">
           {validShots.length
-            ? <DispersionChart shots={validShots} stats={stats} size={350} />
+            ? <AutoSizeChart render={(w, h) => <DispersionChart shots={validShots} stats={stats} size={Math.min(w, h) - 12} />} />
             : <Empty icon={<Crosshair size={18} />}>Record a shot to see the dispersion chart</Empty>}
         </CardSection>
         <CardSection title="Running Stats">
