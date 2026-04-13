@@ -960,6 +960,67 @@ function FieldBarChart({ counts, total, label, width = 360, color = G }) {
   return <svg ref={ref} width={width} height={Math.max(h, 60)} style={{ background: CHART_BG, borderRadius: 10 }} />;
 }
 
+function GroupedBarChart({ sessions, fieldKey, options, width = 360 }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!ref.current || !sessions.length || !options.length) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+    const m = { t: 15, r: 15, b: 50, l: 38 }, w = width - m.l - m.r, h = 160 - m.t - m.b;
+    const maxCount = d3.max(sessions, s => d3.max(options, o => s.counts[o] || 0)) || 1;
+
+    const x0 = d3.scaleBand().domain(options).range([0, w]).paddingInner(0.25).paddingOuter(0.1);
+    const x1 = d3.scaleBand().domain(sessions.map((_, i) => i)).range([0, x0.bandwidth()]).padding(0.08);
+    const y = d3.scaleLinear().domain([0, maxCount]).nice().range([h, 0]);
+
+    const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+
+    // Axes
+    gg.append("g").attr("transform", `translate(0,${h})`)
+      .call(d3.axisBottom(x0).tickSize(0))
+      .selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9)
+      .attr("transform", "rotate(-25)").attr("text-anchor", "end");
+    gg.append("g").call(d3.axisLeft(y).ticks(4).tickFormat(d3.format("d")))
+      .selectAll("text").attr("fill", TICK_CLR).attr("font-size", 9);
+    gg.selectAll(".domain,.tick line").attr("stroke", AXIS_CLR);
+
+    // Bars
+    options.forEach(opt => {
+      sessions.forEach((s, si) => {
+        const cnt = s.counts[opt] || 0;
+        gg.append("rect")
+          .attr("x", x0(opt) + x1(si))
+          .attr("y", y(cnt))
+          .attr("width", x1.bandwidth())
+          .attr("height", h - y(cnt))
+          .attr("fill", s.color)
+          .attr("fill-opacity", 0.85)
+          .attr("rx", 2);
+        // Count label above bar if there's room
+        if (cnt > 0 && h - y(cnt) > 12) {
+          gg.append("text")
+            .attr("x", x0(opt) + x1(si) + x1.bandwidth() / 2)
+            .attr("y", y(cnt) + 12)
+            .attr("text-anchor", "middle")
+            .attr("fill", "rgba(0,0,0,0.7)")
+            .attr("font-size", 9).attr("font-weight", "600")
+            .text(cnt);
+        }
+      });
+    });
+
+    // Legend
+    const legend = svg.append("g").attr("transform", `translate(${m.l},${m.t + h + 35})`);
+    sessions.forEach((s, i) => {
+      const g = legend.append("g").attr("transform", `translate(${i * Math.min(120, w / sessions.length)},0)`);
+      g.append("rect").attr("width", 8).attr("height", 8).attr("rx", 1.5).attr("fill", s.color);
+      g.append("text").attr("x", 12).attr("y", 7).attr("fill", TICK_CLR).attr("font-size", 9)
+        .text(s.name.length > 14 ? s.name.slice(0, 13) + "…" : s.name);
+    });
+  }, [sessions, fieldKey, options, width]);
+
+  return <svg ref={ref} width={width} height={180} style={{ background: CHART_BG, borderRadius: 10 }} />;
+}
+
 function XYTrack({ shots, width = 360 }) {
   const ref = useRef();
   useEffect(() => {
