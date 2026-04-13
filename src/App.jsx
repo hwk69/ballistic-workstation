@@ -2884,6 +2884,68 @@ export default function App() {
           {commonHasXY && <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>}
         </div>
       );
+      // Custom field comparison widgets
+      if (key.startsWith('cmp_custom_')) {
+        const fieldKey = key.replace('cmp_custom_', '');
+        const f = commonFields.find(cf => cf.key === fieldKey);
+        if (!f) return null;
+
+        if (f.type === "number") {
+          return (
+            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
+              {resolved.map((r, i) => (
+                <div key={i}>
+                  <div className="text-xs font-semibold mb-2" style={{ color: r.color }}>{r.session.config.sessionName}</div>
+                  <NumberFieldChart shots={r.shots} fieldKey={f.key} label={f.label} unit={f.unit || ""} width={280} color={r.color} mode="histogram" />
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        if (f.type === "yesno") {
+          return (
+            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
+              {resolved.map((r, i) => {
+                const fs = r.stats.fieldStats?.[f.key];
+                return (
+                  <div key={i}>
+                    <div className="text-xs font-semibold mb-2" style={{ color: r.color }}>{r.session.config.sessionName}</div>
+                    <DonutChart
+                      yesCount={fs?.yes || 0}
+                      noCount={(fs?.total || 0) - (fs?.yes || 0)}
+                      total={fs?.total || 0}
+                      label={f.label} width={180} color={r.color}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
+        if (f.type === "dropdown") {
+          const allOptions = f.options?.length
+            ? f.options
+            : [...new Set(resolved.flatMap(r => Object.keys(r.stats.fieldStats?.[f.key]?.counts || {})))];
+          return (
+            <AutoSizeChart render={(w) => (
+              <GroupedBarChart
+                sessions={resolved.map(r => ({
+                  name: r.session.config.sessionName || 'Session',
+                  color: r.color,
+                  counts: r.stats.fieldStats?.[f.key]?.counts || {},
+                }))}
+                fieldKey={f.key}
+                options={allOptions}
+                width={w - 8}
+              />
+            )} />
+          );
+        }
+
+        return null;
+      }
       return null;
     }
 
