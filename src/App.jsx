@@ -156,7 +156,39 @@ function makeSerial(cfg,num,offset){return`SP1-03 ${cfg.rifleRate||""}RR ${Strin
 function esc(v){const s=String(v??"");return s.includes(",")||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;}
 function rowC(a){return a.map(esc).join(",");}
 function dl(t,fn,m){const b=new Blob([t],{type:m}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);}
-function exportMasterCsv(log,vars){const h=["Serial #",...vars.map(v=>v.label),"X (in)","Y (in)","Chrono FPS","Weight (g)","Time Stamp","Date","Notes"];const rows=[rowC(h)];log.forEach(s=>{s.shots.forEach(sh=>{rows.push(rowC([sh.serial,...vars.map(v=>s.config[v.key]||""),sh.x,sh.y,sh.fps,sh.weight||"",sh.timestamp||"",s.config.date||"",s.config.notes||""]));});});dl(rows.join("\n"),"Ballistic_Master.csv","text/csv");}
+function exportMasterCsv(log,vars){
+  // Build union of all fields across sessions
+  const allFieldKeys = [];
+  const allFieldLabels = {};
+  log.forEach(s => {
+    const sf = s.config.fields || DEFAULT_FIELDS;
+    sf.forEach(f => {
+      if (!allFieldKeys.includes(f.key)) {
+        allFieldKeys.push(f.key);
+        allFieldLabels[f.key] = f.unit ? `${f.label} (${f.unit})` : f.label;
+      }
+    });
+  });
+  const h=["Serial #",...vars.map(v=>v.label),...allFieldKeys.map(k=>allFieldLabels[k]),"Time Stamp","Date","Notes"];
+  const rows=[rowC(h)];
+  log.forEach(s=>{
+    s.shots.forEach(sh=>{
+      const d = sh.data || sh;
+      rows.push(rowC([
+        sh.serial,
+        ...vars.map(v=>s.config[v.key]||""),
+        ...allFieldKeys.map(k => {
+          const val = d[k];
+          if (val === true) return "Yes";
+          if (val === false) return "No";
+          return val ?? "";
+        }),
+        sh.timestamp||"",s.config.date||"",s.config.notes||""
+      ]));
+    });
+  });
+  dl(rows.join("\n"),"Ballistic_Master.csv","text/csv");
+}
 function exportJson(log){dl(JSON.stringify(log,null,2),"Ballistic_All.json","application/json");}
 function countOverlaps(shots){const m={};shots.forEach(s=>{const k=`${s.x},${s.y}`;m[k]=(m[k]||0)+1;});return m;}
 
