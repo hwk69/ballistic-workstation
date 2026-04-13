@@ -2538,8 +2538,8 @@ export default function App() {
       );
       if (key === 'rankings') return (
         <div className="flex">
-          <div className="flex-1 min-w-0 border-r border-border"><VelRankingWidget sessions={cmpSessions} /></div>
-          <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>
+          {commonHasFps && <div className={cn("flex-1 min-w-0", commonHasXY && "border-r border-border")}><VelRankingWidget sessions={cmpSessions} /></div>}
+          {commonHasXY && <div className="flex-1 min-w-0"><AccuracyRankingWidget sessions={cmpSessions} /></div>}
         </div>
       );
       return null;
