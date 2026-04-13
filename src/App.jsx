@@ -2181,14 +2181,14 @@ export default function App() {
               <>
                 {/* Main + Sidebar row */}
                 {(mainItems.length > 0 || sidebarItems.length > 0) && (
-                  <div className="flex items-stretch">
+                  <div className="flex flex-col md:flex-row md:items-stretch">
                     {mainItems.length > 0 && (
-                      <div className="shrink-0" style={{ width: sidebarItems.length > 0 ? mainWidth : '100%' }}>
+                      <div className="shrink-0" style={{ width: sidebarItems.length > 0 ? mainWidth : '100%', maxWidth: '100%' }}>
                         {mainItems.map(item => renderWidget(item))}
                       </div>
                     )}
                     {sidebarItems.length > 0 && (
-                      <div className="flex-1 flex flex-col border-l border-border min-w-0">
+                      <div className="flex-1 flex flex-col border-t md:border-t-0 md:border-l border-border min-w-0">
                         {sidebarItems.map(item => (
                           <div key={item.i} className="flex-1 flex flex-col">
                             {renderWidget(item)}
