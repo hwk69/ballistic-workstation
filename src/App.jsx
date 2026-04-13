@@ -1748,15 +1748,41 @@ export default function App() {
           <span className="text-xs text-muted-foreground">— press Enter to record</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {[["FPS *", "fps", "188"], ["X (in) *", "x", "−2"], ["Y (in) *", "y", "−8"], ["Weight (g)", "weight", "117.5"]].map(([lb, k, ph], i) => (
-            <div key={k} className="flex flex-col">
-              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
-              <input ref={i === 0 ? fpsRef : null} type="number" step={k === "weight" ? "0.01" : "0.5"} value={cur[k]} onChange={e => setCur(p => ({ ...p, [k]: e.target.value }))} placeholder={ph} className={inp} autoFocus={i === 0} />
+          {(cfg.fields || fields).map((f, i) => (
+            <div key={f.key} className="flex flex-col">
+              <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {f.label}{f.unit ? ` (${f.unit})` : ""}{f.required ? " *" : ""}
+              </label>
+              {f.type === "number" && (
+                <input ref={i === 0 ? fpsRef : null} type="number" inputMode="decimal" step="any"
+                  value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp} autoFocus={i === 0} />
+              )}
+              {f.type === "yesno" && (
+                <select value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp}>
+                  <option value="">—</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              )}
+              {f.type === "text" && (
+                <input ref={i === 0 ? fpsRef : null} type="text"
+                  value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp} autoFocus={i === 0} />
+              )}
+              {f.type === "dropdown" && (
+                <select value={cur[f.key] ?? ""} onChange={e => setCur(p => ({ ...p, [f.key]: e.target.value }))}
+                  className={inp}>
+                  <option value="">—</option>
+                  {(f.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
             </div>
           ))}
         </div>
         <div className="flex gap-2">
-          <Btn onClick={addShot} disabled={!cur.fps || cur.x === "" || cur.y === "" || shots.length >= total}>Record</Btn>
+          <Btn onClick={addShot} disabled={shots.length >= total || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
           <Btn v="secondary" onClick={finishSession} disabled={shots.length < 2}>Finish Session</Btn>
           <Btn v="danger" onClick={() => { if (confirm("Abort this session?")) newSession(); }}>Abort</Btn>
         </div>
