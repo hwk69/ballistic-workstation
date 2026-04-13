@@ -1788,17 +1788,48 @@ export default function App() {
         </div>
       </div>
 
-      {/* Live charts */}
+      {/* Live charts & shot log */}
+      {(() => {
+        const sf = cfg.fields || fields;
+        const hasX = sf.some(f => f.key === "x");
+        const hasY = sf.some(f => f.key === "y");
+        const hasXY = hasX && hasY;
+        const hasFps = sf.some(f => f.key === "fps");
+        return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        {hasXY && (
         <CardSection title="Live Dispersion">
           {validShots.length
             ? <AutoSizeChart render={(w, h) => <DispersionChart shots={validShots} stats={stats} size={Math.min(w, h) - 12} />} />
             : <Empty icon={<Crosshair size={18} />}>Record a shot to see the dispersion chart</Empty>}
         </CardSection>
+        )}
         <CardSection title="Running Stats">
           {validShots.length >= 2
             ? <div className="grid grid-cols-2 gap-2">
-                {[["CEP", stats.cep.toFixed(2), 0, OC.cep], ["R90", stats.r90.toFixed(2), 0, OC.r90], ["SD X", stats.sdX.toFixed(2)], ["SD Y", stats.sdY.toFixed(2)], ["Mean FPS", stats.meanV.toFixed(1), 1], ["SD FPS", stats.sdV.toFixed(1)], ["ES FPS", stats.esV.toFixed(1)], ["MPI", `${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`, 0, OC.mpi]].map(([k, v, g, ac]) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} />)}
+                {hasXY && <>
+                  <SB label="CEP" value={stats.cep.toFixed(2)} accentColor={OC.cep} />
+                  <SB label="R90" value={stats.r90.toFixed(2)} accentColor={OC.r90} />
+                  <SB label="SD X" value={stats.sdX.toFixed(2)} />
+                  <SB label="SD Y" value={stats.sdY.toFixed(2)} />
+                  <SB label="MPI" value={`${stats.mpiX.toFixed(1)}, ${stats.mpiY.toFixed(1)}`} accentColor={OC.mpi} />
+                </>}
+                {hasFps && <>
+                  <SB label="Mean FPS" value={stats.meanV.toFixed(1)} gold={1} />
+                  <SB label="SD FPS" value={stats.sdV.toFixed(1)} />
+                  <SB label="ES FPS" value={stats.esV.toFixed(1)} />
+                </>}
+                {sf.filter(f => f.type === "number" && !["x", "y", "fps"].includes(f.key)).map(f => {
+                  const vals = validShots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined && !isNaN(v));
+                  if (vals.length < 2) return null;
+                  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+                  return <SB key={f.key} label={`Mean ${f.label}`} value={`${m.toFixed(1)}${f.unit ? " " + f.unit : ""}`} />;
+                })}
+                {sf.filter(f => f.type === "yesno").map(f => {
+                  const vals = validShots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+                  const yesCount = vals.filter(v => v === true).length;
+                  return <SB key={f.key} label={f.label} value={`${yesCount}/${vals.length} (${vals.length ? Math.round(yesCount / vals.length * 100) : 0}%)`} />;
+                })}
               </div>
             : <Empty icon={<BarChart2 size={18} />}>Need 2 or more shots for statistics</Empty>}
         </CardSection>
@@ -1811,55 +1842,48 @@ export default function App() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      {["#","Serial","FPS","X","Y","Rad","Time","📎",""].map(h => (
-                        <th key={h} className={cn(
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">#</th>
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Serial</th>
+                      {sf.map(f => (
+                        <th key={f.key} className={cn(
                           "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5",
-                          ["FPS","X","Y","Rad"].includes(h) ? "text-right" : "text-left"
-                        )}>{h === "📎" ? "" : h}</th>
+                          f.type === "number" ? "text-right" : "text-left"
+                        )}>{f.label}</th>
                       ))}
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Time</th>
+                      <th className="px-2 py-1.5" />
+                      <th className="px-2 py-1.5" />
                     </tr>
                   </thead>
                   <tbody>
                     {shots.map((s, i) => (
                       <tr key={i} className="border-b border-border">
-                        {editIdx === i ? (
-                          <>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
-                            {["fps","x","y"].map(k => (
-                              <td key={k} className="px-2 py-1.5">
-                                <TblInput value={editVal[k]} onChange={e => setEditVal(p => ({ ...p, [k]: e.target.value }))} />
-                              </td>
-                            ))}
-                            <td className="px-2 py-1.5" />
-                            <td className="px-2 py-1.5" />
-                            <td className="px-2 py-1 text-right whitespace-nowrap">
-                              <button onClick={saveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
-                              <button onClick={() => setEditIdx(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.fps}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.x}</td>
-                            <td className="text-foreground px-2 py-1.5 text-right font-mono">{s.y}</td>
-                            <td className="text-muted-foreground px-2 py-1.5 text-right font-mono">{rad(s.x, s.y).toFixed(1)}</td>
-                            <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
-                            <td className="px-2 py-1.5">
-                              <ShotAttachBtn
-                                serial={s.serial}
-                                pendingCount={(pendingAttachments[s.serial] || []).length}
-                                onQueue={queueAttachment}
-                                onError={setDbError} />
-                            </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                              <button onClick={() => startEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
-                              <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
-                            </td>
-                          </>
-                        )}
+                        <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                        {sf.map(f => {
+                          const val = (s.data || s)[f.key];
+                          let display = "";
+                          if (val === true) display = "Yes";
+                          else if (val === false) display = "No";
+                          else if (val !== null && val !== undefined) display = String(val);
+                          return (
+                            <td key={f.key} className={cn(
+                              "px-2 py-1.5",
+                              f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                            )}>{display}</td>
+                          );
+                        })}
+                        <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                        <td className="px-2 py-1.5">
+                          <ShotAttachBtn
+                            serial={s.serial}
+                            pendingCount={(pendingAttachments[s.serial] || []).length}
+                            onQueue={queueAttachment}
+                            onError={setDbError} />
+                        </td>
+                        <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                          <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1868,6 +1892,8 @@ export default function App() {
             : <Empty>No shots recorded yet</Empty>}
         </div>
       </div>
+        );
+      })()}
     </AppShell>
   );
 
