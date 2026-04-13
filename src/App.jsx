@@ -2626,6 +2626,15 @@ export default function App() {
       attachments:{ label: "Attachments", requires: [] },
       rankings:   { label: "Rankings", requires: [] },
     };
+    // Dynamic comparison widgets for custom fields
+    for (const f of commonFields) {
+      if (["fps", "x", "y"].includes(f.key)) continue;
+      if (f.type === "text") continue;
+      CMP_WIDGET_DEFS[`cmp_custom_${f.key}`] = {
+        label: `${f.label} Comparison`,
+        requires: [f.key],
+      };
+    }
     const availableCmpWidgets = Object.keys(CMP_WIDGET_DEFS).filter(k => {
       if (k === 'rankings') return commonHasFps || commonHasXY;
       return CMP_WIDGET_DEFS[k].requires.every(r => commonKeys.has(r));
