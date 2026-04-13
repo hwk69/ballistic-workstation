@@ -913,6 +913,53 @@ function DonutChart({ yesCount, noCount, total, label, width = 360, color = G })
   return <svg ref={ref} width={width} height={200} style={{ background: CHART_BG, borderRadius: 10 }} />;
 }
 
+function FieldBarChart({ counts, total, label, width = 360, color = G }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!ref.current || total === 0) return;
+    const svg = d3.select(ref.current); svg.selectAll("*").remove();
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const barH = 22, gap = 4, m = { t: 10, r: 15, b: 10, l: 90 };
+    const h = m.t + entries.length * (barH + gap) + m.b;
+    const w = width - m.l - m.r;
+
+    svg.attr("height", h);
+    const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+
+    const x = d3.scaleLinear().domain([0, d3.max(entries, d => d[1])]).nice().range([0, w]);
+
+    entries.forEach(([opt, cnt], i) => {
+      const y = i * (barH + gap);
+      const opacity = 0.9 - (i * 0.12);
+      gg.append("rect")
+        .attr("x", 0).attr("y", y)
+        .attr("width", x(cnt)).attr("height", barH)
+        .attr("fill", color).attr("fill-opacity", Math.max(opacity, 0.3)).attr("rx", 3);
+
+      // Count label inside bar (or to the right if bar is too small)
+      const countX = x(cnt) > 30 ? x(cnt) - 6 : x(cnt) + 6;
+      const countAnchor = x(cnt) > 30 ? "end" : "start";
+      gg.append("text")
+        .attr("x", countX).attr("y", y + barH / 2 + 1)
+        .attr("text-anchor", countAnchor).attr("dominant-baseline", "middle")
+        .attr("fill", x(cnt) > 30 ? "rgba(0,0,0,0.8)" : TICK_CLR)
+        .attr("font-size", 11).attr("font-weight", "600")
+        .text(cnt);
+
+      // Option label to the left
+      gg.append("text")
+        .attr("x", -6).attr("y", y + barH / 2 + 1)
+        .attr("text-anchor", "end").attr("dominant-baseline", "middle")
+        .attr("fill", TICK_CLR).attr("font-size", 11)
+        .text(opt.length > 12 ? opt.slice(0, 11) + "…" : opt);
+    });
+  }, [counts, total, width, color]);
+
+  const entryCount = Object.keys(counts).length;
+  const h = 10 + entryCount * 26 + 10;
+  return <svg ref={ref} width={width} height={Math.max(h, 60)} style={{ background: CHART_BG, borderRadius: 10 }} />;
+}
+
 function XYTrack({ shots, width = 360 }) {
   const ref = useRef();
   useEffect(() => {
