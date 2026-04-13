@@ -1,5 +1,8 @@
 import { supabase } from './supabase.js';
 
+// Helper: coerce value to a number or null (Postgres double precision columns reject "")
+const toNum = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 export async function signIn(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -78,10 +81,10 @@ export async function saveSession({ config, shots: shotData }) {
   const shotsToInsert = shotData.map(sh => ({
     session_id: session.id,
     serial: sh.serial,
-    x: sh.x,
-    y: sh.y,
-    fps: sh.fps,
-    weight: sh.weight,
+    x: toNum(sh.x),
+    y: toNum(sh.y),
+    fps: toNum(sh.fps),
+    weight: toNum(sh.weight),
     shot_num: sh.shotNum,
     timestamp: sh.timestamp,
     data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
@@ -132,7 +135,7 @@ export async function updateSession(id, { config, shots: shotData }) {
 
   const updateResults = await Promise.all(existing.map(sh =>
     supabase.from('shots')
-      .update({ serial: sh.serial, x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight, shot_num: sh.shotNum, timestamp: sh.timestamp, data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight } })
+      .update({ serial: sh.serial, x: toNum(sh.x), y: toNum(sh.y), fps: toNum(sh.fps), weight: toNum(sh.weight), shot_num: sh.shotNum, timestamp: sh.timestamp, data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight } })
       .eq('id', sh.id)
       .select()
       .single()
@@ -146,7 +149,7 @@ export async function updateSession(id, { config, shots: shotData }) {
       .insert(toInsert.map(sh => ({
         session_id: id,
         serial: sh.serial,
-        x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight,
+        x: toNum(sh.x), y: toNum(sh.y), fps: toNum(sh.fps), weight: toNum(sh.weight),
         shot_num: sh.shotNum, timestamp: sh.timestamp,
         data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
       })))
