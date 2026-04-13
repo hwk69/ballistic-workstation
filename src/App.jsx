@@ -94,16 +94,63 @@ const METRIC_INFO = {
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
 const std=a=>{if(a.length<2)return 0;const m=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1));};
 const rad=(x,y)=>Math.sqrt(x*x+y*y);
-function calcStats(shots){
-  const v=shots.filter(s=>!isNaN(s.fps)&&!isNaN(s.x)&&!isNaN(s.y));
-  if(v.length<2)return{cep:0,r90:0,mpiX:0,mpiY:0,mr:0,es:0,sdR:0,sdV:0,meanV:0,esV:0,covEllipse:null,n:v.length,sdX:0,sdY:0};
-  const xs=v.map(s=>s.x),ys=v.map(s=>s.y),vs=v.map(s=>s.fps),mpiX=mean(xs),mpiY=mean(ys);
-  const radii=v.map(s=>rad(s.x-mpiX,s.y-mpiY)),sorted=[...radii].sort((a,b)=>a-b);
-  const cep=sorted[Math.floor(sorted.length*.5)]||0,r90=sorted[Math.min(Math.floor(sorted.length*.9),sorted.length-1)]||0;
-  const mr=mean(radii),es=Math.max(...radii)*2,sdR=std(radii),sdV=std(vs),meanV=mean(vs),esV=vs.length?Math.max(...vs)-Math.min(...vs):0,sdX=std(xs),sdY=std(ys);
-  let covEllipse=null;
-  if(v.length>=3){const cx=xs.map(q=>q-mpiX),cy=ys.map(q=>q-mpiY),n=cx.length,sxx=cx.reduce((s2,q)=>s2+q*q,0)/(n-1),syy=cy.reduce((s2,q)=>s2+q*q,0)/(n-1),sxy=cx.reduce((s2,q,i)=>s2+q*cy[i],0)/(n-1),t=Math.atan2(2*sxy,sxx-syy)/2,k=2.146,a2=(sxx+syy)/2+Math.sqrt(((sxx-syy)/2)**2+sxy**2),b2=(sxx+syy)/2-Math.sqrt(((sxx-syy)/2)**2+sxy**2);covEllipse={rx:Math.sqrt(Math.max(a2,.001)*k),ry:Math.sqrt(Math.max(b2,.001)*k),angle:t*180/Math.PI};}
-  return{cep,r90,mpiX,mpiY,mr,es,sdR,sdV,meanV,esV,covEllipse,n:v.length,sdX,sdY};
+function calcStats(shots, sessionFields) {
+  // Legacy accuracy stats — only when x + y fields present
+  const hasXY = !sessionFields || (sessionFields.some(f => f.key === "x") && sessionFields.some(f => f.key === "y"));
+  const hasFps = !sessionFields || sessionFields.some(f => f.key === "fps");
+  const v = hasXY
+    ? shots.filter(s => { const d = s.data || s; return !isNaN(d.x) && !isNaN(d.y); })
+    : shots;
+  let cep=0,r90=0,mpiX=0,mpiY=0,mr=0,es=0,sdR=0,covEllipse=null,sdX=0,sdY=0;
+  if (hasXY && v.length >= 2) {
+    const xs=v.map(s=>(s.data||s).x),ys=v.map(s=>(s.data||s).y);
+    mpiX=mean(xs); mpiY=mean(ys);
+    const radii=v.map(s=>rad((s.data||s).x-mpiX,(s.data||s).y-mpiY)),sorted=[...radii].sort((a,b)=>a-b);
+    cep=sorted[Math.floor(sorted.length*.5)]||0;
+    r90=sorted[Math.min(Math.floor(sorted.length*.9),sorted.length-1)]||0;
+    mr=mean(radii); es=Math.max(...radii)*2; sdR=std(radii); sdX=std(xs); sdY=std(ys);
+    if(v.length>=3){const cx=xs.map(q=>q-mpiX),cy=ys.map(q=>q-mpiY),n=cx.length,sxx=cx.reduce((s2,q)=>s2+q*q,0)/(n-1),syy=cy.reduce((s2,q)=>s2+q*q,0)/(n-1),sxy=cx.reduce((s2,q,i)=>s2+q*cy[i],0)/(n-1),t=Math.atan2(2*sxy,sxx-syy)/2,k=2.146,a2=(sxx+syy)/2+Math.sqrt(((sxx-syy)/2)**2+sxy**2),b2=(sxx+syy)/2-Math.sqrt(((sxx-syy)/2)**2+sxy**2);covEllipse={rx:Math.sqrt(Math.max(a2,.001)*k),ry:Math.sqrt(Math.max(b2,.001)*k),angle:t*180/Math.PI};}
+  }
+  // Velocity stats — only when fps field present
+  let sdV=0,meanV=0,esV=0;
+  if (hasFps) {
+    const vs=shots.map(s=>(s.data||s).fps).filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+    if(vs.length>=2){sdV=std(vs);meanV=mean(vs);esV=Math.max(...vs)-Math.min(...vs);}
+    else if(vs.length===1){meanV=vs[0];}
+  }
+  // Dynamic per-field stats
+  const fieldStats = {};
+  if (sessionFields) {
+    for (const f of sessionFields) {
+      if (f.type === "number" && !["x","y","fps"].includes(f.key)) {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined && !isNaN(v));
+        fieldStats[f.key] = {
+          type: "number", label: f.label, unit: f.unit || "",
+          mean: vals.length >= 1 ? mean(vals) : null,
+          sd: vals.length >= 2 ? std(vals) : null,
+          es: vals.length >= 2 ? Math.max(...vals) - Math.min(...vals) : null,
+          min: vals.length >= 1 ? Math.min(...vals) : null,
+          max: vals.length >= 1 ? Math.max(...vals) : null,
+          n: vals.length,
+        };
+      } else if (f.type === "yesno") {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+        const yesCount = vals.filter(v => v === true).length;
+        fieldStats[f.key] = {
+          type: "yesno", label: f.label,
+          yes: yesCount, no: vals.length - yesCount, total: vals.length,
+          pct: vals.length > 0 ? Math.round(yesCount / vals.length * 100) : 0,
+        };
+      } else if (f.type === "dropdown") {
+        const vals = shots.map(s => (s.data || s)[f.key]).filter(v => v !== null && v !== undefined);
+        const counts = {};
+        for (const v of vals) counts[v] = (counts[v] || 0) + 1;
+        fieldStats[f.key] = { type: "dropdown", label: f.label, counts, total: vals.length };
+      }
+      // text fields: no stats
+    }
+  }
+  return { cep, r90, mpiX, mpiY, mr, es, sdR, sdV, meanV, esV, covEllipse, n: v.length, sdX, sdY, fieldStats, hasXY, hasFps };
 }
 function makeSerial(cfg,num,offset){return`SP1-03 ${cfg.rifleRate||""}RR ${String(offset+num).padStart(2,"0")}`;}
 function esc(v){const s=String(v??"");return s.includes(",")||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;}
@@ -1345,7 +1392,7 @@ export default function App() {
       setLog(sessions.map(s => ({
         ...s,
         config: { ...s.config, fields: s.config.fields || DEFAULT_FIELDS },
-        stats: calcStats(s.shots),
+        stats: calcStats(s.shots, s.config.fields),
       })));
       setSavedComparisons(comparisons);
       setHasAttachments(allAtts.length > 0);
@@ -1460,7 +1507,7 @@ export default function App() {
       return requiredNumeric.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
     });
   }, [shots, cfg.fields, fields]);
-  const stats = useMemo(() => calcStats(shots), [shots]);
+  const stats = useMemo(() => calcStats(shots, cfg.fields || fields), [shots, cfg.fields, fields]);
   const addOption = useCallback(async (key, val) => {
     setOpts(p => {
       const n = { ...p, [key]: [...(p[key] || []), val] };
@@ -1535,7 +1582,7 @@ export default function App() {
           })
         );
       }
-      const entry = { ...saved, stats: calcStats(saved.shots) };
+      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
       setLog(p => [entry, ...p]);
       setViewId(saved.id);
       setPendingAttachments({});
@@ -1560,7 +1607,7 @@ export default function App() {
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data) || !data.length) { setDbError('No sessions found in file.'); return; }
       const saved = await Promise.all(data.map(s => db.saveSession({ config: s.config, shots: s.shots || [] })));
-      const entries = saved.map(s => ({ ...s, stats: calcStats(s.shots) }));
+      const entries = saved.map(s => ({ ...s, stats: calcStats(s.shots, s.config.fields) }));
       setLog(p => [...entries, ...p]);
     } catch (err) {
       setDbError('Import failed: ' + err.message);
@@ -1572,7 +1619,7 @@ export default function App() {
     const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | ");
     try {
       const saved = await db.updateSession(editSessionId, { config: { ...esCfg, sessionName: name }, shots: [...esShots] });
-      const entry = { ...saved, stats: calcStats(saved.shots) };
+      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
       setLog(p => p.map(s => s.id === editSessionId ? entry : s));
       setViewId(editSessionId);
       setPhase(P.RESULTS);
@@ -1628,7 +1675,7 @@ export default function App() {
     setTimeout(() => fpsRef.current?.focus(), 100);
   };
   const viewed = log.find(s => s.id === viewId);
-  const esStats = useMemo(() => calcStats(esShots), [esShots]);
+  const esStats = useMemo(() => calcStats(esShots, esCfg.fields || fields), [esShots, esCfg.fields, fields]);
 
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
