@@ -2183,7 +2183,7 @@ export default function App() {
                 {(mainItems.length > 0 || sidebarItems.length > 0) && (
                   <div className="flex flex-col md:flex-row md:items-stretch">
                     {mainItems.length > 0 && (
-                      <div className="shrink-0" style={{ width: sidebarItems.length > 0 ? mainWidth : '100%', maxWidth: '100%' }}>
+                      <div className="md:shrink-0" style={{ width: sidebarItems.length > 0 ? mainWidth : '100%', maxWidth: '100%' }}>
                         {mainItems.map(item => renderWidget(item))}
                       </div>
                     )}
