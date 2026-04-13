@@ -2297,9 +2297,10 @@ export default function App() {
       if (k === 'rankings') return commonHasFps || commonHasXY;
       return CMP_WIDGET_DEFS[k].requires.every(r => commonKeys.has(r));
     });
-    const mainItems    = cmpLayout.filter(item => item.zone === 'main');
-    const sidebarItems = cmpLayout.filter(item => item.zone === 'sidebar');
-    const fullItems    = cmpLayout.filter(item => item.zone === 'full');
+    const activeCmpLayout = cmpLayout.filter(item => availableCmpWidgets.includes(item.i));
+    const mainItems    = activeCmpLayout.filter(item => item.zone === 'main');
+    const sidebarItems = activeCmpLayout.filter(item => item.zone === 'sidebar');
+    const fullItems    = activeCmpLayout.filter(item => item.zone === 'full');
     const splitMap     = { '1/2': '50%', '2/3': '67%', '3/4': '75%' };
     const mainWidth    = splitMap[cmpSplit];
     const zoneLabel    = { main: 'M', sidebar: 'S', full: 'F' };
@@ -2481,40 +2482,48 @@ export default function App() {
         const allShots = resolved.flatMap(r =>
           [...r.shots]
             .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
-            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color, mpiX: r.stats.mpiX, mpiY: r.stats.mpiY }))
+            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color }))
         );
-        const hdrs = ["Session","#","Serial","FPS","X","Y","Wt","Rad"];
-        const rightAlign = ["FPS","X","Y","Wt","Rad"];
         return (
           <div className="overflow-auto max-h-80">
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border">
-                  {hdrs.map(h => (
-                    <th key={h} className={cn(
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Session</th>
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+                  {commonFields.map(f => (
+                    <th key={f.key} className={cn(
                       "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                      rightAlign.includes(h) ? "text-right" : "text-left"
-                    )}>{h}</th>
+                      f.type === "number" ? "text-right" : "text-left"
+                    )}>{f.label}</th>
                   ))}
+                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
                 </tr>
               </thead>
               <tbody>
-                {allShots.map((s, i) => {
-                  const r = rad(s.x - (s.mpiX || 0), s.y - (s.mpiY || 0));
-                  return (
-                    <tr key={i} className="border-b transition-colors"
-                      style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
-                      <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
-                      <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
-                      <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.fps}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.x}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-foreground">{s.y}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{s.weight || "—"}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono text-muted-foreground">{r.toFixed(3)}</td>
-                    </tr>
-                  );
-                })}
+                {allShots.map((s, i) => (
+                  <tr key={i} className="border-b transition-colors"
+                    style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
+                    <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
+                    <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
+                    <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
+                    {commonFields.map(f => {
+                      const val = (s.data || s)[f.key];
+                      let display = "";
+                      if (val === true) display = "Yes";
+                      else if (val === false) display = "No";
+                      else if (val !== null && val !== undefined) display = String(val);
+                      return (
+                        <td key={f.key} className={cn(
+                          "px-2.5 py-1.5",
+                          f.type === "number" ? "text-right font-mono text-foreground" : "text-foreground"
+                        )}>{display || "—"}</td>
+                      );
+                    })}
+                    <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2731,7 +2740,11 @@ export default function App() {
           </div>{/* end collapsible content */}
           </div>{/* end session picker */}
 
-          {resolved.length >= 2 ? (
+          {resolved.length >= 2 && commonFields.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm text-muted-foreground">Selected sessions have no common measurement fields to compare.</p>
+            </div>
+          ) : resolved.length >= 2 ? (
               <>
                 {/* Main + Sidebar row */}
                 {(mainItems.length > 0 || sidebarItems.length > 0) && (
@@ -2755,11 +2768,11 @@ export default function App() {
                 {/* Full-width zone */}
                 {fullItems.map(item => renderWidget(item))}
                 {/* Add widget bar */}
-                {Object.keys(CMP_WIDGET_DEFS).some(k => !cmpLayout.some(item => item.i === k)) && (
+                {availableCmpWidgets.some(k => !activeCmpLayout.some(item => item.i === k)) && (
                   <div className="widget-add-bar p-5 border-t border-border flex justify-center">
                     <WidgetAdder
-                      available={Object.keys(CMP_WIDGET_DEFS).filter(k => !cmpLayout.some(item => item.i === k))}
-                      labels={Object.fromEntries(Object.keys(CMP_WIDGET_DEFS).map(k => [k, CMP_WIDGET_DEFS[k].label]))}
+                      available={availableCmpWidgets.filter(k => !activeCmpLayout.some(item => item.i === k))}
+                      labels={Object.fromEntries(availableCmpWidgets.map(k => [k, CMP_WIDGET_DEFS[k].label]))}
                       onAdd={addWidget} />
                   </div>
                 )}
