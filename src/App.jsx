@@ -885,7 +885,7 @@ function SortableWidget({ id, children, size, onResize, fullWidth }) {
 
 // ─── Widget registry ──────────────────────────────────────────────────────────
 const WIDGETS = {
-  dispersion: { label: "Shot Dispersion", default: true, render: (s, vs, st, opts, toggle, setOpt) => (
+  dispersion: { label: "Shot Dispersion", default: true, requires: ["x", "y"], render: (s, vs, st, opts, toggle, setOpt) => (
     <>
       <div className="flex gap-1.5 mb-2.5 flex-wrap items-center">
         {[["showEllipse","Ellipse",OC.ellipse],["showGrid","Grid"]].map(([k,l,c]) => (
@@ -896,13 +896,13 @@ const WIDGETS = {
       <AutoSizeChart render={(w, h) => <DispersionChart shots={vs} stats={st} size={Math.min(w, h) - 12} opts={opts} color={opts.color || G} />} />
     </>
   )},
-  velHist:    { label: "Velocity Distribution", default: true, render: (s, vs, st, opts) => (
+  velHist:    { label: "Velocity Distribution", default: true, requires: ["fps"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <VelHist shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  velRad:     { label: "FPS vs Radial", default: true, render: (s, vs) => (
+  velRad:     { label: "FPS vs Radial", default: true, requires: ["fps", "x", "y"], render: (s, vs) => (
     <AutoSizeChart render={(w) => <VelRad shots={vs} width={w - 8} />} />
   )},
-  metrics:    { label: "Key Metrics", default: true, render: (s, vs, st, opts, toggle) => {
+  metrics:    { label: "Key Metrics", default: true, requires: [], render: (s, vs, st, opts, toggle) => {
     const OMAP = { "CEP": "showCep", "R90": "showR90", "MPI X/Y": "showMpi" };
     return (
       <>
@@ -918,23 +918,23 @@ const WIDGETS = {
       </>
     );
   }},
-  radTrack:   { label: "Radial Tracking", default: false, render: (s, vs, st, opts) => (
+  radTrack:   { label: "Radial Tracking", default: false, requires: ["x", "y"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <RadialTrack shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  fpsTrack:   { label: "FPS Tracking", default: false, render: (s, vs, st, opts) => (
+  fpsTrack:   { label: "FPS Tracking", default: false, requires: ["fps"], render: (s, vs, st, opts) => (
     <AutoSizeChart render={(w) => <FpsTrack shots={vs} width={w - 8} color={opts.color || G} />} />
   )},
-  xyTrack:    { label: "X/Y Deviation", default: false, render: (s, vs) => (
+  xyTrack:    { label: "X/Y Deviation", default: false, requires: ["x", "y"], render: (s, vs) => (
     <AutoSizeChart render={(w) => <XYTrack shots={vs} width={w - 8} />} />
   )},
-  shotTable:   { label: "Shot Table", default: false, render: (s, vs) => <ShotTable shots={vs} /> },
-  attachments: { label: "Attachments", default: false, render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
+  shotTable:   { label: "Shot Table", default: false, requires: [], render: (s, vs) => <ShotTable shots={vs} session={s} /> },
+  attachments: { label: "Attachments", default: false, requires: [], render: (s, _vs, _st, _opts, _toggle, _setOpt, onError) => (
     <AttachmentWidget session={s} onError={onError} />
   )},
-  velRanking: { label: "Best Velocity", default: false, render: (s, _vs, st) => (
+  velRanking: { label: "Best Velocity", default: false, requires: ["fps"], render: (s, _vs, st) => (
     <VelRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
-  accuracyRanking: { label: "Best Accuracy", default: false, render: (s, _vs, st) => (
+  accuracyRanking: { label: "Best Accuracy", default: false, requires: ["x", "y"], render: (s, _vs, st) => (
     <AccuracyRankingWidget sessions={[{ name: s.config.sessionName || 'This Session', color: '#FFDF00', stats: st }]} />
   )},
 };
@@ -1974,7 +1974,15 @@ export default function App() {
   // ─── RESULTS ─────────────────────────────────────────────────────────────────
   if (phase === P.RESULTS && viewed) {
     const s = viewed;
-    const vs = s.shots.filter(sh => !isNaN(sh.fps) && !isNaN(sh.x) && !isNaN(sh.y));
+    const sf = s.config.fields || fields;
+    const sfKeys = new Set(sf.map(f => f.key));
+    const availableWidgets = Object.keys(WIDGETS).filter(k => WIDGETS[k].requires.every(r => sfKeys.has(r)));
+    const activeLayout = layout.filter(k => availableWidgets.includes(k));
+    const vs = s.shots.filter(sh => {
+      const d = sh.data || sh;
+      const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
+      return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+    });
     const st = s.stats;
     const cfgLine = vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ");
     return (
@@ -2008,7 +2016,7 @@ export default function App() {
 
           {/* Widget grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-            {layout.map((key, idx) => {
+            {activeLayout.map((key, idx) => {
               const wg = WIDGETS[key]; if (!wg) return null;
               const fullWidth = key === "shotTable" || key === "attachments";
               return (
@@ -2028,11 +2036,11 @@ export default function App() {
                 </div>
               );
             })}
-            {Object.keys(WIDGETS).some(k => !layout.includes(k)) && (
+            {availableWidgets.some(k => !activeLayout.includes(k)) && (
               <div className="p-5 border-b border-border lg:col-span-2 flex justify-center">
                 <WidgetAdder
-                  available={Object.keys(WIDGETS).filter(k => !layout.includes(k))}
-                  labels={Object.fromEntries(Object.keys(WIDGETS).map(k => [k, WIDGETS[k].label]))}
+                  available={availableWidgets.filter(k => !activeLayout.includes(k))}
+                  labels={Object.fromEntries(availableWidgets.map(k => [k, WIDGETS[k].label]))}
                   onAdd={toggleWidget} />
               </div>
             )}
