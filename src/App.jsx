@@ -903,16 +903,36 @@ const WIDGETS = {
     <AutoSizeChart render={(w) => <VelRad shots={vs} width={w - 8} />} />
   )},
   metrics:    { label: "Key Metrics", default: true, requires: [], render: (s, vs, st, opts, toggle) => {
-    const OMAP = { "CEP": "showCep", "R90": "showR90", "MPI X/Y": "showMpi" };
+    const sb = (k, v, g, ac, onClick, active) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} onClick={onClick} active={active} />;
     return (
       <>
-      <p className="text-[11px] text-muted-foreground/60 mb-2 mt-0">Click CEP, R90, or MPI to toggle overlays on the chart.</p>
+      {st.hasXY && <p className="text-[11px] text-muted-foreground/60 mb-2 mt-0">Click CEP, R90, or MPI to toggle overlays on the chart.</p>}
       <div className="grid grid-cols-2 gap-2">
-        {[["CEP",st.cep.toFixed(2)+" in",0,OC.cep],["R90",st.r90.toFixed(2)+" in",0,OC.r90],["SD X",st.sdX.toFixed(2)],["SD Y",st.sdY.toFixed(2)],["Mean FPS",st.meanV.toFixed(1),0,opts.color||G],["SD FPS",st.sdV.toFixed(1)],["ES FPS",st.esV.toFixed(1)],["Mean Rad",st.mr.toFixed(2)],["MPI X/Y",st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1),0,OC.mpi],["Ext Spread",st.es.toFixed(2)]].map(([k,v,g,ac]) => {
-          const ok = OMAP[k];
-          return <SB key={k} label={k} value={v} gold={g} accentColor={ac}
-            onClick={ok && toggle ? () => toggle(ok) : undefined}
-            active={ok ? opts[ok] : undefined} />;
+        {st.hasXY && <>
+          {sb("CEP", st.cep.toFixed(2)+" in", 0, OC.cep, toggle ? () => toggle("showCep") : undefined, opts.showCep)}
+          {sb("R90", st.r90.toFixed(2)+" in", 0, OC.r90, toggle ? () => toggle("showR90") : undefined, opts.showR90)}
+          {sb("SD X", st.sdX.toFixed(2))}
+          {sb("SD Y", st.sdY.toFixed(2))}
+          {sb("MPI X/Y", st.mpiX.toFixed(1)+"/"+st.mpiY.toFixed(1), 0, OC.mpi, toggle ? () => toggle("showMpi") : undefined, opts.showMpi)}
+          {sb("Mean Rad", st.mr.toFixed(2))}
+          {sb("Ext Spread", st.es.toFixed(2))}
+        </>}
+        {st.hasFps && <>
+          {sb("Mean FPS", st.meanV.toFixed(1), 0, opts.color || G)}
+          {sb("SD FPS", st.sdV.toFixed(1))}
+          {sb("ES FPS", st.esV.toFixed(1))}
+        </>}
+        {st.fieldStats && Object.entries(st.fieldStats).flatMap(([key, fs]) => {
+          if (fs.type === "number") return [
+            fs.mean !== null ? sb(`Mean ${fs.label}`, `${fs.mean.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+            fs.sd !== null ? sb(`SD ${fs.label}`, `${fs.sd.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+            fs.es !== null ? sb(`ES ${fs.label}`, `${fs.es.toFixed(1)}${fs.unit ? " " + fs.unit : ""}`) : null,
+          ].filter(Boolean);
+          if (fs.type === "yesno") return [sb(fs.label, `${fs.yes}/${fs.total} (${fs.pct}%)`)];
+          if (fs.type === "dropdown") return Object.entries(fs.counts).map(([opt, cnt]) =>
+            sb(`${fs.label}: ${opt}`, `${cnt}/${fs.total}`)
+          );
+          return [];
         })}
       </div>
       </>
