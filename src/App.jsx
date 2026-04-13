@@ -2948,6 +2948,20 @@ export default function App() {
       return null;
     }
 
+    // Close dropdown on outside click
+    const cmpDropdownRef = useRef();
+    useEffect(() => {
+      if (!cmpDropdownOpen) return;
+      const handler = (e) => {
+        if (cmpDropdownRef.current && !cmpDropdownRef.current.contains(e.target)) {
+          setCmpDropdownOpen(false);
+          setCmpSearch("");
+        }
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [cmpDropdownOpen]);
+
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
         {/* Toolbar */}
@@ -3001,33 +3015,98 @@ export default function App() {
             </p>
           </div>
 
-          {/* Session picker — placeholder, replaced in Task 2 */}
+          {/* Session picker */}
           <div className="export-hide bg-secondary border-b border-border px-6 py-3">
-            {/* Session picker UI will be replaced in Task 2 */}
-            {cmpSlots.length > 0 && (
-              <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider shrink-0">
-                  {cmpSlots.length} selected
-                </span>
-                {cmpSlots.map(sl => {
-                  const s = log.find(x => x.id === sl.id);
-                  if (!s) return null;
-                  return (
-                    <div key={sl.id} className="flex items-center gap-1.5">
-                      <ColorPicker color={sl.color} onChange={c => setCmpSlots(p => p.map(x => x.id === sl.id ? { ...x, color: c } : x))} />
-                      <span className="text-xs text-muted-foreground truncate max-w-[120px]">
-                        {s.config.sessionName || "Session"}
-                      </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              {cmpSlots.map(sl => {
+                const s = log.find(x => x.id === sl.id);
+                if (!s) return null;
+                return (
+                  <div key={sl.id} className="inline-flex items-center gap-1.5 bg-card/60 border border-border rounded-md px-2 py-1">
+                    <ColorPicker color={sl.color} onChange={c => setCmpSlots(p => p.map(x => x.id === sl.id ? { ...x, color: c } : x))} />
+                    <span className="text-xs text-foreground truncate max-w-[120px]">{s.config.sessionName || "Session"}</span>
+                    <button
+                      onClick={() => setCmpSlots(p => p.filter(x => x.id !== sl.id))}
+                      className="text-muted-foreground/50 hover:text-destructive cursor-pointer bg-transparent border-none transition-colors ml-0.5 p-0">
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+
+              {/* Add button + dropdown */}
+              <div className="relative" ref={cmpDropdownRef}>
+                <button
+                  onClick={() => { setCmpDropdownOpen(o => !o); setCmpSearch(""); }}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground px-2.5 py-1 rounded-md border border-dashed border-border hover:border-foreground/30 cursor-pointer bg-transparent transition-colors">
+                  + Add
+                </button>
+
+                {cmpDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-[340px] bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                    <div className="p-2 border-b border-border">
+                      <input
+                        autoFocus
+                        value={cmpSearch}
+                        onChange={e => setCmpSearch(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Escape") { setCmpDropdownOpen(false); setCmpSearch(""); } }}
+                        placeholder="Search by name, date, or variable…"
+                        className="w-full bg-secondary border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground/50"
+                      />
                     </div>
-                  );
-                })}
+                    <div className="max-h-[300px] overflow-y-auto">
+                      {(() => {
+                        const selectedIds = new Set(cmpSlots.map(sl => sl.id));
+                        const available = log.filter(s => !selectedIds.has(s.id));
+                        const q = cmpSearch.toLowerCase().trim();
+                        const filtered = q
+                          ? available.filter(s => {
+                              const name = (s.config.sessionName || "").toLowerCase();
+                              const date = new Date(s.date).toLocaleDateString();
+                              const varVals = vars.map(v => s.config[v.key] || "").join(" ").toLowerCase();
+                              return name.includes(q) || date.toLowerCase().includes(q) || varVals.includes(q);
+                            })
+                          : available;
+                        const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
+                        if (sorted.length === 0) return (
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">No sessions found</div>
+                        );
+                        return sorted.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => {
+                              setCmpSlots(p => [...p, { id: s.id, color: PALETTE[p.length % PALETTE.length] }]);
+                              setCmpDropdownOpen(false);
+                              setCmpSearch("");
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-secondary/80 cursor-pointer bg-transparent border-none transition-colors border-b border-border last:border-b-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-foreground truncate mr-2">{s.config.sessionName || "Session"}</span>
+                              <span className="text-[10px] text-muted-foreground shrink-0">{new Date(s.date).toLocaleDateString()}</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground/60 mt-0.5 truncate">
+                              {vars.map(v => s.config[v.key]).filter(Boolean).join(" · ")}
+                            </div>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {cmpSlots.length === 0 && (
+                <span className="text-xs text-muted-foreground">Add sessions to compare</span>
+              )}
+
+              {cmpSlots.length >= 2 && (
                 <button onClick={() => setCmpSlots([])}
                   className="text-xs text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none transition-colors ml-auto">
                   Clear all
                 </button>
-              </div>
-            )}
-          </div>{/* end session picker placeholder */}
+              )}
+            </div>
+          </div>{/* end session picker */}
 
           {resolved.length >= 2 && commonFields.length === 0 ? (
             <div className="px-6 py-12 text-center">
