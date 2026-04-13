@@ -1257,7 +1257,7 @@ export default function App() {
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
-  const [cur, setCur]       = useState({ fps: "", x: "", y: "", weight: "" });
+  const [cur, setCur]       = useState(() => Object.fromEntries(fields.map(f => [f.key, ""])));
   const [editIdx, setEditIdx] = useState(null);
   const [editVal, setEditVal] = useState({});
   const [esCfg, setEsCfg]   = useState({});
@@ -1451,7 +1451,15 @@ export default function App() {
 
 
   const total = parseInt(cfg.shotCount) || 0;
-  const validShots = useMemo(() => shots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y)), [shots]);
+  const validShots = useMemo(() => {
+    const sessionFields = cfg.fields || fields;
+    const requiredNumeric = sessionFields.filter(f => f.required && f.type === "number").map(f => f.key);
+    if (requiredNumeric.length === 0) return shots;
+    return shots.filter(s => {
+      const d = s.data || s;
+      return requiredNumeric.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+    });
+  }, [shots, cfg.fields, fields]);
   const stats = useMemo(() => calcStats(shots), [shots]);
   const addOption = useCallback(async (key, val) => {
     setOpts(p => {
@@ -1466,7 +1474,49 @@ export default function App() {
     setFields(newFields);
     try { await db.saveSettings({ fields: newFields }); } catch (err) { setDbError('Fields save failed: ' + err.message); }
   }, []);
-  const addShot = useCallback(() => { const fps = parseFloat(cur.fps), x = parseFloat(cur.x), y = parseFloat(cur.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => [...p, { fps, x, y, weight: cur.weight, serial: makeSerial(cfg, p.length + 1, existingCount), shotNum: p.length + 1, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]); setCur(p => ({ fps: "", x: "", y: "", weight: p.weight })); setTimeout(() => fpsRef.current?.focus(), 50); }, [cur, shots, cfg, existingCount]);
+  const addShot = useCallback(() => {
+    // Validate required fields
+    const sessionFields = cfg.fields || fields;
+    for (const f of sessionFields) {
+      if (f.required) {
+        if (f.type === "number" && isNaN(parseFloat(cur[f.key]))) return;
+        if (f.type !== "number" && !cur[f.key] && cur[f.key] !== false) return;
+      }
+    }
+    // Build data object
+    const data = {};
+    for (const f of sessionFields) {
+      const v = cur[f.key];
+      if (f.type === "number") {
+        data[f.key] = v !== "" ? parseFloat(v) : null;
+      } else if (f.type === "yesno") {
+        data[f.key] = v === "yes" ? true : v === "no" ? false : null;
+      } else {
+        data[f.key] = v || null;
+      }
+    }
+    // Build shot with legacy fields for backwards compat
+    const shot = {
+      fps: data.fps ?? null,
+      x: data.x ?? null,
+      y: data.y ?? null,
+      weight: data.weight ?? cur.weight ?? null,
+      data,
+      serial: makeSerial(cfg, shots.length + 1, existingCount),
+      shotNum: shots.length + 1,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setShots(p => [...p, shot]);
+    // Clear fields — keep number field values for repeat entry
+    setCur(prev => {
+      const next = {};
+      for (const f of sessionFields) {
+        next[f.key] = f.type === "number" ? prev[f.key] : "";
+      }
+      return next;
+    });
+    setTimeout(() => fpsRef.current?.focus(), 50);
+  }, [cur, shots, cfg, existingCount, fields]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
   const saveEdit = () => { if (editIdx === null) return; const fps = parseFloat(editVal.fps), x = parseFloat(editVal.x), y = parseFloat(editVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => p.map((s, i) => i === editIdx ? { ...s, ...editVal, fps, x, y } : s)); setEditIdx(null); };
@@ -1494,7 +1544,7 @@ export default function App() {
       setDbError('Failed to save session: ' + err.message);
     }
   };
-  const newSession = () => { setPhase(P.SETUP); setShots([]); setCur({ fps: "", x: "", y: "", weight: "" }); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
+  const newSession = () => { setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
   const delSession = async id => {
     try {
       await db.deleteSession(id);
@@ -1539,7 +1589,8 @@ export default function App() {
     if (!s) return;
     setCfg({ ...s.config });
     setShots(s.shots.map(sh => ({ ...sh })));
-    setCur({ fps: "", x: "", y: "", weight: s.shots[0]?.weight || "" });
+    const sessionFields = s.config.fields || fields;
+    setCur(Object.fromEntries(sessionFields.map(f => [f.key, ""])));
     try {
       await db.deleteSession(id);
       setLog(p => p.filter(x => x.id !== id));
