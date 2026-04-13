@@ -1743,18 +1743,16 @@ export default function App() {
   const [esShotEditVal, setEsShotEditVal] = useState({});
   const [layout, setLayout] = useState(DEF_LAYOUT);
   const [dispOpts, setDispOpts] = useState(DEF_DISP);
-  const [cmpSlots, setCmpSlots] = useState([{ id: null, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]);
+  const [cmpSlots, setCmpSlots] = useState([]);
   const [cmpDispOpts, setCmpDispOpts] = useState(DEF_DISP);
   const [cmpMetricsOpen, setCmpMetricsOpen] = useState(false);
-  const [cmpPickerOpen, setCmpPickerOpen] = useState(true);
+  const [cmpDropdownOpen, setCmpDropdownOpen] = useState(false);
+  const [cmpSearch, setCmpSearch] = useState("");
   const [savedComparisons, setSavedComparisons] = useState([]);
   const [cmpMetrics, setCmpMetrics] = useState(DEF_CMP_METRICS);
   const [cmpLayout, setCmpLayout] = useState(DEFAULT_CMP_LAYOUT);
   const [cmpSplit, setCmpSplit] = useState(DEFAULT_CMP_SPLIT);
   const [cmpTitle, setCmpTitle] = useState("");
-  const [cmpBy, setCmpBy] = useState("");
-  const [cmpFilters, setCmpFilters] = useState({});
-  const [cmpHoverTip, setCmpHoverTip] = useState(null);
   const [histFilters, setHistFilters] = useState({});
   const [histSearch, setHistSearch] = useState("");
   const [histSort, setHistSort] = useState("newest");
@@ -1772,15 +1770,6 @@ export default function App() {
     setPendingAttachments(p => ({ ...p, [serial]: [...(p[serial] || []), ...files] }));
   }, []);
   const [hasAttachments, setHasAttachments] = useState(false);
-
-  // Auto-deselect sessions that no longer match active filters
-  useEffect(() => {
-    setCmpSlots(p => p.filter(sl => {
-      const s = log.find(x => x.id === sl.id);
-      if (!s) return false;
-      return Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v);
-    }));
-  }, [cmpFilters]);
 
   const existingCount = useMemo(() => log.reduce((c, s) => s.config.rifleRate === cfg.rifleRate ? c + s.shots.length : c, 0), [log, cfg.rifleRate]);
   const loadAllData = async () => {
@@ -1851,7 +1840,7 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); } }, [phase]);
+  useEffect(() => { if (phase === P.CMP) { setCmpDispOpts(DEF_DISP); setCmpTitle(""); setCmpDropdownOpen(false); setCmpSearch(""); } }, [phase]);
 
   const saveLayoutAll = useCallback(async upd => {
     const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
@@ -1879,8 +1868,6 @@ export default function App() {
   const loadComparison = useCallback((c) => {
     setCmpTitle(c.title || "");
     setCmpSlots(c.slots.filter(sl => !sl.id || log.some(s => s.id === sl.id)));
-    setCmpFilters(c.filters || {});
-    setCmpBy(c.by || "");
     setCmpMetrics(c.metrics || DEF_CMP_METRICS);
     const raw = c.layout ?? c.widgets;
     if (Array.isArray(raw) && raw.length > 0) {
@@ -2980,7 +2967,7 @@ export default function App() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, cmpFilters, cmpBy, cmpMetrics, cmpLayout)}>
+            <Btn v="secondary" onClick={() => saveComparison(cmpTitle, cmpSlots, {}, "", cmpMetrics, cmpLayout)}>
               Save Comparison
             </Btn>
             <Btn v="secondary" onClick={handleExport} disabled={resolved.length < 2}>
@@ -3014,124 +3001,11 @@ export default function App() {
             </p>
           </div>
 
-          {/* Session picker */}
-          <div className="export-hide bg-secondary border-b border-border">
-            <button
-              onClick={() => setCmpPickerOpen(o => !o)}
-              className="w-full flex items-center justify-between px-6 py-3 cursor-pointer bg-transparent border-none hover:bg-accent/20 transition-colors">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Sessions{cmpSlots.length > 0 ? ` — ${cmpSlots.length} selected` : ""}
-              </span>
-              <svg className={cn("size-3.5 text-muted-foreground transition-transform duration-200", cmpPickerOpen ? "" : "-rotate-90")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
-            </button>
-          <div className={cn("px-6 overflow-hidden transition-all duration-300", cmpPickerOpen ? "pb-5 max-h-[600px]" : "max-h-0 pb-0 pointer-events-none")}>
-
-            {/* Row 1: Comparing by */}
-            <div className="flex items-center gap-2.5 mb-4 flex-wrap">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Comparing</span>
-              <select
-                value={cmpBy}
-                onChange={e => { setCmpBy(e.target.value); setCmpFilters({}); }}
-                className={`${inp} w-auto text-xs`}>
-                <option value="">— all sessions —</option>
-                {vars.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
-              </select>
-              {cmpBy && (
-                <button onClick={() => { setCmpBy(""); setCmpFilters({}); }}
-                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
-                  Clear
-                </button>
-              )}
-              <span className="text-[11px] text-muted-foreground ml-auto shrink-0">
-                {(() => { const n = log.filter(s => Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v)).length; return `${n} of ${log.length} sessions`; })()}
-              </span>
-            </div>
-
-            {/* Row 2: Filter chips for other variables */}
-            {cmpBy && (() => {
-              const filterVars = vars.filter(v => v.key !== cmpBy);
-              const hasFilters = filterVars.some(v => {
-                const vals = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
-                return vals.length >= 2;
-              });
-              if (!hasFilters) return null;
-              return (
-                <div className="flex flex-wrap gap-x-5 gap-y-2.5 mb-4 pb-4 border-b border-border">
-                  {filterVars.map(v => {
-                    const vals = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
-                    if (vals.length < 2) return null;
-                    return (
-                      <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground/50 mr-1">{v.label}</span>
-                        {vals.map(val => {
-                          const active = cmpFilters[v.key] === val;
-                          return (
-                            <button key={val}
-                              onClick={() => setCmpFilters(p => { const n = { ...p }; if (n[v.key] === val) delete n[v.key]; else n[v.key] = val; return n; })}
-                              className="text-[11px] font-semibold px-2.5 py-1 border cursor-pointer transition-all duration-100"
-                              style={{
-                                background: active ? '#111118' : '#fff',
-                                color: active ? G : '#6b6b7e',
-                                borderColor: active ? '#111118' : '#e2e2e8',
-                              }}>
-                              {val}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
-            {/* Session chips */}
-            {(() => {
-              const filtered = log.filter(s =>
-                Object.entries(cmpFilters).every(([k, v]) => !v || s.config[k] === v)
-              );
-              if (!filtered.length) return (
-                <p className="text-sm text-muted-foreground py-4">No sessions match these filters.</p>
-              );
-              return (
-                <div className="flex flex-wrap gap-1.5">
-                  {filtered.map(s => {
-                    const slot = cmpSlots.find(sl => sl.id === s.id);
-                    const isSelected = !!slot;
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={() => {
-                          if (isSelected) {
-                            setCmpSlots(p => p.filter(sl => sl.id !== s.id));
-                          } else {
-                            setCmpSlots(p => [...p, { id: s.id, color: PALETTE[p.length % PALETTE.length] }]);
-                          }
-                        }}
-                        onMouseEnter={ev => setCmpHoverTip({ x: ev.clientX, y: ev.clientY, session: s })}
-                        onMouseMove={ev => setCmpHoverTip(t => t ? { ...t, x: ev.clientX, y: ev.clientY } : t)}
-                        onMouseLeave={() => setCmpHoverTip(null)}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all duration-150 cursor-pointer",
-                          isSelected
-                            ? "border-primary/30 bg-primary/10 text-foreground"
-                            : "border-border bg-card/60 text-muted-foreground hover:text-foreground hover:border-border/80"
-                        )}>
-                        <span
-                          className="size-2 rounded-full shrink-0 transition-colors"
-                          style={{ background: isSelected ? slot.color : "rgba(255,255,255,0.15)" }} />
-                        {s.config.sessionName || "Session"}
-                        {isSelected && <span className="text-primary font-bold leading-none ml-0.5">✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
-            {/* Selected strip — color pickers */}
+          {/* Session picker — placeholder, replaced in Task 2 */}
+          <div className="export-hide bg-secondary border-b border-border px-6 py-3">
+            {/* Session picker UI will be replaced in Task 2 */}
             {cmpSlots.length > 0 && (
-              <div className="flex items-center gap-4 mt-4 pt-3.5 border-t border-border flex-wrap">
+              <div className="flex items-center gap-4 flex-wrap">
                 <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider shrink-0">
                   {cmpSlots.length} selected
                 </span>
@@ -3153,8 +3027,7 @@ export default function App() {
                 </button>
               </div>
             )}
-          </div>{/* end collapsible content */}
-          </div>{/* end session picker */}
+          </div>{/* end session picker placeholder */}
 
           {resolved.length >= 2 && commonFields.length === 0 ? (
             <div className="px-6 py-12 text-center">
@@ -3202,39 +3075,7 @@ export default function App() {
             )}
         </div>
 
-        {/* Session chip hover tooltip */}
-        {cmpHoverTip && (() => {
-          const s = cmpHoverTip.session;
-          const st = s.stats;
-          const lines = [
-            s.config.sessionName || "Session",
-            ...vars.map(v => s.config[v.key] ? `${v.label}: ${s.config[v.key]}` : null).filter(Boolean),
-            "─",
-            `Shots: ${st.n}`,
-            `CEP: ${st.cep.toFixed(3)}"`,
-            `R90: ${st.r90.toFixed(3)}"`,
-            `Mean FPS: ${st.meanV.toFixed(1)}`,
-            `SD FPS: ${st.sdV.toFixed(1)}`,
-            ...(s.config.date ? [`Date: ${s.config.date}`] : []),
-          ];
-          const style = {
-            position: "fixed", left: cmpHoverTip.x + 14, top: cmpHoverTip.y - 10,
-            pointerEvents: "none", zIndex: 200,
-            background: "#1b1b22", border: `1px solid ${G}40`,
-            borderRadius: 8, padding: "8px 12px", fontSize: 11, lineHeight: 1.75,
-            color: "#ededf2", whiteSpace: "nowrap",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-          };
-          return (
-            <div style={style}>
-              {lines.map((l, i) =>
-                l === "─"
-                  ? <div key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
-                  : <div key={i} style={i === 0 ? { color: G, fontWeight: 600, marginBottom: 2 } : undefined}>{l}</div>
-              )}
-            </div>
-          );
-        })()}
+        {/* Session chip hover tooltip — removed in Task 1, replaced in Task 2 */}
       </AppShell>
     );
   }
