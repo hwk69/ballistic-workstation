@@ -1061,8 +1061,31 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
   const [newOption, setNewOption] = useState("");
+  const [customName, setCustomName] = useState(false);
 
   const typeLabels = { number: "Number", yesno: "Yes / No", text: "Text", dropdown: "Dropdown" };
+
+  // Standard field presets — selecting one auto-fills name, type, required, unit
+  const PRESETS = [
+    { key: "fps", label: "FPS", type: "number", required: true, unit: "fps" },
+    { key: "x", label: "X", type: "number", required: true, unit: "in" },
+    { key: "y", label: "Y", type: "number", required: true, unit: "in" },
+    { key: "weight", label: "Weight", type: "number", required: false, unit: "g" },
+  ];
+  const availablePresets = PRESETS.filter(p => !fields.some(f => f.key === p.key));
+
+  const selectPreset = (key) => {
+    if (key === "__custom__") {
+      setCustomName(true);
+      setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
+      return;
+    }
+    const p = PRESETS.find(x => x.key === key);
+    if (p) {
+      setCustomName(false);
+      setNewField({ name: p.label, type: p.type, required: p.required, unit: p.unit, options: [] });
+    }
+  };
 
   const addField = () => {
     const name = newField.name.trim();
@@ -1080,6 +1103,7 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
     onUpdate([...fields, field]);
     setNewField({ name: "", type: "number", required: false, unit: "", options: [] });
     setNewOption("");
+    setCustomName(false);
     setAdding(false);
   };
 
@@ -1138,13 +1162,27 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div className="flex flex-col">
               <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Field Name</label>
-              <input
-                value={newField.name}
-                onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
-                onKeyDown={e => { if (e.key === "Enter") addField(); if (e.key === "Escape") { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); } }}
-                placeholder="e.g. Hole Size"
-                className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
-                autoFocus />
+              {!customName ? (
+                <select
+                  value={newField.name ? PRESETS.find(p => p.label === newField.name)?.key || "" : ""}
+                  onChange={e => selectPreset(e.target.value)}
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                  autoFocus>
+                  <option value="">— Select field —</option>
+                  {availablePresets.map(p => (
+                    <option key={p.key} value={p.key}>{p.label} ({p.unit})</option>
+                  ))}
+                  <option value="__custom__">Custom…</option>
+                </select>
+              ) : (
+                <input
+                  value={newField.name}
+                  onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
+                  onKeyDown={e => { if (e.key === "Enter") addField(); if (e.key === "Escape") { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setCustomName(false); } }}
+                  placeholder="e.g. Hole Size"
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                  autoFocus />
+              )}
             </div>
             <div className="flex flex-col">
               <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</label>
@@ -1222,7 +1260,7 @@ function MeasurementFieldsCard({ fields, onUpdate }) {
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary text-muted-foreground opacity-50 cursor-not-allowed"
               )}>Add Field</button>
-            <button onClick={() => { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setNewOption(""); }}
+            <button onClick={() => { setAdding(false); setNewField({ name: "", type: "number", required: false, unit: "", options: [] }); setNewOption(""); setCustomName(false); }}
               className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
           </div>
         </div>
