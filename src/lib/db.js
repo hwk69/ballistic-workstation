@@ -23,7 +23,7 @@ export async function getSettings() {
     .select('*')
     .eq('id', 1)
     .single();
-  return data || { opts: null, vars: null, layout: null };
+  return data || { opts: null, vars: null, layout: null, fields: null };
 }
 
 export async function saveSettings(patch) {
@@ -61,6 +61,7 @@ export async function getSessions() {
         serial: sh.serial,
         shotNum: sh.shot_num,
         timestamp: sh.timestamp,
+        data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
       })),
   }));
 }
@@ -83,6 +84,7 @@ export async function saveSession({ config, shots: shotData }) {
     weight: sh.weight,
     shot_num: sh.shotNum,
     timestamp: sh.timestamp,
+    data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
   }));
 
   const { data: savedShots, error: she } = await supabase
@@ -99,6 +101,7 @@ export async function saveSession({ config, shots: shotData }) {
       id: sh.id,
       fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight,
       serial: sh.serial, shotNum: sh.shot_num, timestamp: sh.timestamp,
+      data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
     })),
   };
 }
@@ -129,7 +132,7 @@ export async function updateSession(id, { config, shots: shotData }) {
 
   const updateResults = await Promise.all(existing.map(sh =>
     supabase.from('shots')
-      .update({ serial: sh.serial, x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight, shot_num: sh.shotNum, timestamp: sh.timestamp })
+      .update({ serial: sh.serial, x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight, shot_num: sh.shotNum, timestamp: sh.timestamp, data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight } })
       .eq('id', sh.id)
       .select()
       .single()
@@ -145,6 +148,7 @@ export async function updateSession(id, { config, shots: shotData }) {
         serial: sh.serial,
         x: sh.x, y: sh.y, fps: sh.fps, weight: sh.weight,
         shot_num: sh.shotNum, timestamp: sh.timestamp,
+        data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
       })))
       .select();
     if (she) throw she;
@@ -171,6 +175,7 @@ export async function updateSession(id, { config, shots: shotData }) {
       id: sh.id,
       fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight,
       serial: sh.serial, shotNum: sh.shot_num, timestamp: sh.timestamp,
+      data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
     })),
   };
 }
