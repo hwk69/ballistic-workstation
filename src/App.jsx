@@ -152,7 +152,7 @@ function calcStats(shots, sessionFields) {
   }
   return { cep, r90, mpiX, mpiY, mr, es, sdR, sdV, meanV, esV, covEllipse, n: v.length, sdX, sdY, fieldStats, hasXY, hasFps };
 }
-function makeSerial(cfg,num,offset){return`SP1-03 ${cfg.rifleRate||""}RR ${String(offset+num).padStart(2,"0")}`;}
+function makeSerial(cfg,num,offset){const prefix=cfg.serialPrefix||`SP1-03 ${cfg.rifleRate||""}RR`;return`${prefix} ${String(offset+num).padStart(2,"0")}`;}
 function esc(v){const s=String(v??"");return s.includes(",")||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;}
 function rowC(a){return a.map(esc).join(",");}
 function dl(t,fn,m){const b=new Blob([t],{type:m}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);}
@@ -301,7 +301,7 @@ function Toggle({ label, on, onToggle, color }) {
 function SmartSelect({ label, value, onChange, options, onAddOption }) {
   const [adding, setAdding] = useState(false);
   const [nv, setNv] = useState("");
-  const add = () => { if (!nv.trim()) return; onAddOption(nv.trim()); onChange(nv.trim()); setNv(""); setAdding(false); };
+  const add = () => { const v = nv.trim(); if (!v) return; if (options.some(o => o.toLowerCase() === v.toLowerCase())) { onChange(options.find(o => o.toLowerCase() === v.toLowerCase())); setNv(""); setAdding(false); return; } onAddOption(v); onChange(v); setNv(""); setAdding(false); };
   return (
     <div className="flex flex-col">
       <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
@@ -1992,7 +1992,9 @@ export default function App() {
   const stats = useMemo(() => calcStats(shots, cfg.fields || fields), [shots, cfg.fields, fields]);
   const addOption = useCallback(async (key, val) => {
     setOpts(p => {
-      const n = { ...p, [key]: [...(p[key] || []), val] };
+      const existing = p[key] || [];
+      if (existing.some(o => o.toLowerCase() === val.toLowerCase())) return p;
+      const n = { ...p, [key]: [...existing, val] };
       db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message));
       return n;
     });
@@ -2236,9 +2238,15 @@ export default function App() {
             <input type="date" value={cfg.date} onChange={e => up("date", e.target.value)} className={inp} />
           </div>
         </div>
-        <div className="mt-4 flex flex-col">
-          <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</label>
-          <input value={cfg.notes} onChange={e => up("notes", e.target.value)} placeholder="Optional" className={inp} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <div className="flex flex-col">
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Serial Prefix</label>
+            <input value={cfg.serialPrefix || ""} onChange={e => up("serialPrefix", e.target.value)} placeholder={`SP1-03 ${cfg.rifleRate||""}RR`} className={inp} />
+          </div>
+          <div className="flex flex-col">
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</label>
+            <input value={cfg.notes} onChange={e => up("notes", e.target.value)} placeholder="Optional" className={inp} />
+          </div>
         </div>
       </CardSection>
 
@@ -2309,16 +2317,48 @@ export default function App() {
               {vars.map(vr => (
                 <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
               ))}
-              {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"]].map(([lb,k,t]) => (
+              {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"],["Serial Prefix","serialPrefix","text"]].map(([lb,k,t]) => (
                 <div key={k} className="flex flex-col">
                   <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
-                  <input type={t} value={cfg[k] || ""} onChange={e => up(k, e.target.value)} className={inp} />
+                  <input type={t} value={cfg[k] || ""} onChange={e => up(k, e.target.value)} placeholder={k === "serialPrefix" ? `SP1-03 ${cfg.rifleRate||""}RR` : undefined} className={inp} />
                 </div>
               ))}
               <div className="flex flex-col">
                 <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shot Count</label>
                 <input type="number" min="1" value={cfg.shotCount || ""} onChange={e => up("shotCount", e.target.value)} className={inp} />
               </div>
+            </div>
+            {/* Add variable */}
+            <div className="mt-3 pt-3 border-t border-border">
+              {vars.filter(v => !v.core).length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {vars.filter(v => !v.core).map(v => (
+                    <div key={v.key} className="inline-flex items-center gap-1.5 bg-secondary border border-border rounded-lg pl-3 pr-2 py-1.5 text-xs">
+                      <span className="text-foreground font-medium">{v.label}</span>
+                      <button onClick={() => removeVar(v.key)}
+                        className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer bg-transparent border-none leading-none text-base"
+                        aria-label={`Remove ${v.label}`}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {adding
+                ? <div className="flex gap-2 items-center">
+                    <input value={newVarName} onChange={e => setNewVarName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addVar(); if (e.key === "Escape") { setAdding(false); setNewVarName(""); } }}
+                      placeholder="Variable name…" className={`${inp} max-w-[220px]`} autoFocus />
+                    <Btn onClick={addVar} disabled={!newVarName.trim()}>Add</Btn>
+                    <button onClick={() => { setAdding(false); setNewVarName(""); }}
+                      className="text-muted-foreground text-sm cursor-pointer bg-transparent border-none">Cancel</button>
+                  </div>
+                : <button onClick={() => setAdding(true)}
+                    className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
+                    style={{ color: TX2 }}
+                    onMouseEnter={e => e.target.style.color = TX}
+                    onMouseLeave={e => e.target.style.color = TX2}>
+                    + Add Variable
+                  </button>
+              }
             </div>
           </div>
         )}
