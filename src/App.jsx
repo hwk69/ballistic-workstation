@@ -1903,6 +1903,20 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [continuingSessionId, shots, cfg]);
 
+  // Re-serial all shots when serial prefix or rifleRate changes
+  const prevSerialKey = useRef("");
+  useEffect(() => {
+    if (shots.length === 0) return;
+    const key = cfg.serialPrefix || `SP1-03 ${cfg.rifleRate || ""}RR`;
+    if (prevSerialKey.current === key) return;
+    if (prevSerialKey.current === "") { prevSerialKey.current = key; return; } // initial mount
+    prevSerialKey.current = key;
+    setShots(prev => prev.map((s, i) => ({
+      ...s,
+      serial: makeSerial(cfg, i + 1, 0),
+    })));
+  }, [cfg.serialPrefix, cfg.rifleRate, shots.length]);
+
   const saveLayoutAll = useCallback(async upd => {
     const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
     try { await db.saveSettings({ layout: c }); } catch (err) { setDbError('Settings save failed: ' + err.message); }
