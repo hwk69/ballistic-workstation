@@ -2374,6 +2374,10 @@ export default function App() {
                   </button>
               }
             </div>
+            {/* Measurement fields editor */}
+            <div className="mt-3 pt-3 border-t border-border">
+              <MeasurementFieldsCard fields={cfg.fields || fields} onUpdate={nf => { up("fields", nf); setCur(Object.fromEntries(nf.map(f => [f.key, ""]))); }} customPresets={customPresets} onAddCustomPreset={addCustomPreset} />
+            </div>
           </div>
         )}
       </div>
