@@ -397,7 +397,15 @@ function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, o
   const fileRef = useRef();
   const [uploading, setUploading] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
-  const total = pendingCount + doneCount;
+  const [dbCount, setDbCount] = useState(0);
+
+  // Load existing attachment count from DB when shotId is available
+  useEffect(() => {
+    if (!shotId) return;
+    db.getAttachments({ shotId }).then(atts => setDbCount(atts.length)).catch(() => {});
+  }, [shotId]);
+
+  const total = pendingCount + doneCount + dbCount;
 
   const handleFiles = async (e) => {
     const files = Array.from(e.target.files);
@@ -1730,6 +1738,7 @@ export default function App() {
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null); const cmpDropdownRef = useRef();
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
@@ -2012,6 +2021,8 @@ export default function App() {
   const saveEdit = () => { if (editIdx === null) return; const fps = parseFloat(editVal.fps), x = parseFloat(editVal.x), y = parseFloat(editVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => p.map((s, i) => i === editIdx ? { ...s, ...editVal, fps, x, y } : s)); setEditIdx(null); };
   const delShot = i => setShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const finishSession = async () => {
+    if (saving) return;
+    setSaving(true);
     const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
     try {
       const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
@@ -2032,6 +2043,8 @@ export default function App() {
       setPhase(P.RESULTS);
     } catch (err) {
       setDbError('Failed to save session: ' + err.message);
+    } finally {
+      setSaving(false);
     }
   };
   const newSession = () => { setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
@@ -2301,7 +2314,7 @@ export default function App() {
         </div>
         <div className="flex gap-2">
           <Btn onClick={addShot} disabled={shots.length >= total || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
-          <Btn v="secondary" onClick={finishSession} disabled={shots.length < 2}>Finish Session</Btn>
+          <Btn v="secondary" onClick={finishSession} disabled={shots.length < 2 || saving}>{saving ? "Saving…" : "Finish Session"}</Btn>
           <Btn v="danger" onClick={() => { if (confirm("Abort this session?")) newSession(); }}>Abort</Btn>
         </div>
       </div>
@@ -2503,7 +2516,9 @@ export default function App() {
 
   // ─── EDIT ────────────────────────────────────────────────────────────────────
   if (phase === P.EDIT) {
-    const esValid = esShots.filter(s => !isNaN(s.fps) && !isNaN(s.x) && !isNaN(s.y));
+    const esFieldSet = esCfg.fields || fields;
+    const esHasXY = esFieldSet.some(f => f.key === "x") && esFieldSet.some(f => f.key === "y");
+    const esValid = esHasXY ? esShots.filter(s => !isNaN(s.x) && !isNaN(s.y)) : [];
     return (
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="960px">
         <div className="flex items-center justify-between mb-7">
@@ -2528,7 +2543,7 @@ export default function App() {
           </div>
         </CardSection>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        {esHasXY && <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           <CardSection title="Preview">
             {esValid.length >= 2
               ? <DispersionChart shots={esValid} stats={esStats} size={320} />
@@ -2541,7 +2556,7 @@ export default function App() {
                 </div>
               : <Empty icon={<BarChart2 size={18} />}>Need 2 or more valid shots</Empty>}
           </CardSection>
-        </div>
+        </div>}
 
         <CardSection title={`Shots (${esShots.length})`} className="mb-4">
           <div className="overflow-auto max-h-64">

@@ -221,7 +221,7 @@ export async function deleteComparison(id) {
 // ─── Attachments (Phase 2) ────────────────────────────────────────────────────
 export async function uploadAttachment(file, shotId, sessionId) {
   const ext = file.name.includes('.') ? file.name.split('.').pop() : '';
-  const uniqueName = `${Date.now()}${ext ? '.' + ext : ''}`;
+  const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext ? '.' + ext : ''}`;
   const storagePath = `${sessionId}/${shotId}/${uniqueName}`;
 
   const { error: ue } = await supabase.storage
