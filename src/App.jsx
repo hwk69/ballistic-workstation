@@ -2098,43 +2098,10 @@ export default function App() {
     setEditIdx(null);
   };
   const delShot = i => setShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
-  const finishSession = async () => {
-    if (saving) return;
-    setSaving(true);
-    const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
-    try {
-      let saved;
-      if (continuingSessionId) {
-        // Update the existing session (preserves shot IDs and attachments)
-        saved = await db.updateSession(continuingSessionId, { config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
-      } else {
-        saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
-      }
-      // Upload any queued attachments, matching by serial number
-      const pending = Object.entries(pendingAttachments);
-      if (pending.length > 0) {
-        await Promise.allSettled(
-          pending.flatMap(([serial, files]) => {
-            const shot = saved.shots.find(sh => sh.serial === serial);
-            return files.map(file => db.uploadAttachment(file, shot?.id ?? null, saved.id));
-          })
-        );
-      }
-      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
-      if (continuingSessionId) {
-        setLog(p => p.map(s => s.id === continuingSessionId ? entry : s));
-      } else {
-        setLog(p => [entry, ...p]);
-      }
-      setViewId(saved.id);
-      setPendingAttachments({});
-      setContinuingSessionId(null);
-      setPhase(P.RESULTS);
-    } catch (err) {
-      setDbError('Failed to save session: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
+  const finishSession = () => {
+    if (!continuingSessionId) return; // Can't view results if session hasn't been saved yet
+    setViewId(continuingSessionId);
+    setPhase(P.RESULTS);
   };
   const newSession = () => { setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
   const delSession = async id => {
@@ -2456,8 +2423,7 @@ export default function App() {
         </div>
         <div className="flex gap-2">
           <Btn onClick={addShot} disabled={shots.length >= total || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
-          <Btn v="secondary" onClick={finishSession} disabled={shots.length < 2 || saving}>{saving ? "Saving…" : "Finish Session"}</Btn>
-          <Btn v="danger" onClick={() => { if (confirm("Abort this session?")) newSession(); }}>Abort</Btn>
+          <Btn v="secondary" onClick={finishSession} disabled={!continuingSessionId || saveStatus === "saving"}>View Results →</Btn>
         </div>
       </div>
 
