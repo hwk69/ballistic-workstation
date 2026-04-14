@@ -2113,7 +2113,31 @@ export default function App() {
   };
   const esDelShot = i => setEsShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const esStartEdit = i => { setEsShotEdit(i); setEsShotEditVal({ ...esShots[i] }); };
-  const esSaveEdit = () => { if (esShotEdit === null) return; const fps = parseFloat(esShotEditVal.fps), x = parseFloat(esShotEditVal.x), y = parseFloat(esShotEditVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setEsShots(p => p.map((s, i) => i === esShotEdit ? { ...s, ...esShotEditVal, fps, x, y } : s)); setEsShotEdit(null); };
+  const esSaveEdit = () => {
+    if (esShotEdit === null) return;
+    const sf = esCfg.fields || fields;
+    const parsed = {};
+    for (const f of sf) {
+      const raw = esShotEditVal[f.key];
+      if (f.type === "number") {
+        const n = parseFloat(raw);
+        if (f.required && isNaN(n)) return;
+        parsed[f.key] = isNaN(n) ? null : n;
+      } else if (f.type === "yesno") {
+        parsed[f.key] = raw === "yes" || raw === true ? true : raw === "no" || raw === false ? false : null;
+      } else {
+        if (f.required && !raw && raw !== false) return;
+        parsed[f.key] = raw || null;
+      }
+    }
+    const data = { ...((esShots[esShotEdit] || {}).data || {}), ...parsed };
+    setEsShots(p => p.map((s, i) => i === esShotEdit ? {
+      ...s, ...parsed,
+      fps: parsed.fps ?? s.fps, x: parsed.x ?? s.x, y: parsed.y ?? s.y, weight: parsed.weight ?? s.weight,
+      data,
+    } : s));
+    setEsShotEdit(null);
+  };
   const continueSession = async id => {
     const s = log.find(x => x.id === id);
     if (!s) return;
@@ -2563,21 +2587,21 @@ export default function App() {
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border">
-                  {["#","Serial","FPS","X","Y","Wt","",""].map(h => (
+                  {["#","Serial",...esFieldSet.map(f => f.label),"",""].map(h => (
                     <th key={h} className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {esShots.map((ss, i) => (
-                  <tr key={i} className="border-b border-border">
+                  <tr key={ss.id || `new-${i}`} className="border-b border-border">
                     {esShotEdit === i ? (
                       <>
                         <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
                         <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
-                        {["fps","x","y","weight"].map(k => (
-                          <td key={k} className="px-1.5 py-1">
-                            <TblInput value={esShotEditVal[k]} onChange={e => setEsShotEditVal(p => ({ ...p, [k]: e.target.value }))} />
+                        {esFieldSet.map(f => (
+                          <td key={f.key} className="px-1.5 py-1">
+                            <TblInput value={esShotEditVal[f.key] ?? ""} onChange={e => setEsShotEditVal(p => ({ ...p, [f.key]: e.target.value }))} />
                           </td>
                         ))}
                         <td className="px-2 py-1 text-right whitespace-nowrap">
@@ -2589,10 +2613,11 @@ export default function App() {
                       <>
                         <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
                         <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
-                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.fps}</td>
-                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.x}</td>
-                        <td className="text-foreground px-2 py-1.5 font-mono">{ss.y}</td>
-                        <td className="text-muted-foreground px-2 py-1.5 font-mono">{ss.weight || "—"}</td>
+                        {esFieldSet.map(f => (
+                          <td key={f.key} className={`px-2 py-1.5 font-mono ${f.required ? "text-foreground" : "text-muted-foreground"}`}>
+                            {(ss.data || ss)[f.key] ?? ss[f.key] ?? "—"}
+                          </td>
+                        ))}
                         <td className="px-2 py-1.5 text-center">
                           <ShotAttachBtn shotId={ss.id} sessionId={editSessionId} serial={ss.serial} onError={setDbError} />
                         </td>
@@ -2611,14 +2636,22 @@ export default function App() {
 
         <CardSection title="Add Shot" className="border-primary/[0.13]">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            {[["FPS","fps"],["X (in)","x"],["Y (in)","y"],["Weight","weight"]].map(([lb, k]) => (
-              <div key={k} className="flex flex-col">
-                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
-                <input type="number" step={k === "weight" ? "0.01" : "0.5"} value={esNewShot[k]} onChange={e => setEsNewShot(p => ({ ...p, [k]: e.target.value }))} className={inp} />
+            {esFieldSet.map(f => (
+              <div key={f.key} className="flex flex-col">
+                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{f.label}</label>
+                {f.type === "yesno" ? (
+                  <select value={esNewShot[f.key] || ""} onChange={e => setEsNewShot(p => ({ ...p, [f.key]: e.target.value }))} className={inp}>
+                    <option value="">—</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                ) : (
+                  <input type={f.type === "number" ? "number" : "text"} step={f.type === "number" ? "any" : undefined} value={esNewShot[f.key] ?? ""} onChange={e => setEsNewShot(p => ({ ...p, [f.key]: e.target.value }))} className={inp} />
+                )}
               </div>
             ))}
           </div>
-          <Btn onClick={esAddShot} disabled={!esNewShot.fps || esNewShot.x === "" || esNewShot.y === ""}>Add Shot</Btn>
+          <Btn onClick={esAddShot} disabled={esFieldSet.filter(f => f.required).some(f => f.type === "number" ? isNaN(parseFloat(esNewShot[f.key])) : !esNewShot[f.key])}>Add Shot</Btn>
         </CardSection>
       </AppShell>
     );
