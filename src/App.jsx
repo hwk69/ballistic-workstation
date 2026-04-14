@@ -2100,21 +2100,23 @@ export default function App() {
     setTimeout(() => fpsRef.current?.focus(), 50);
   }, [cur, shots, cfg, existingCount, fields, continuingSessionId, vars, pendingAttachments]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
-  const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
+  const startEdit = i => { const s = shots[i]; setEditIdx(i); setEditVal({ ...s, ...(s.data || {}) }); };
   const saveEdit = () => {
     if (editIdx === null) return;
     const sf = cfg.fields || fields;
+    const orig = shots[editIdx]?.data || shots[editIdx] || {};
     const parsed = {};
     for (const f of sf) {
       const raw = editVal[f.key];
+      const hadValue = orig[f.key] !== undefined && orig[f.key] !== null;
       if (f.type === "number") {
         const n = parseFloat(raw);
-        if (f.required && isNaN(n)) return;
+        if (f.required && hadValue && isNaN(n)) return;
         parsed[f.key] = isNaN(n) ? null : n;
       } else if (f.type === "yesno") {
         parsed[f.key] = raw === "yes" || raw === true ? true : raw === "no" || raw === false ? false : null;
       } else {
-        if (f.required && !raw && raw !== false) return;
+        if (f.required && hadValue && !raw && raw !== false) return;
         parsed[f.key] = raw || null;
       }
     }
