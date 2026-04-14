@@ -23,27 +23,23 @@ function AttachmentCard({ att, onDelete, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="relative group bg-secondary border border-border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors">
-      <div className="aspect-square flex items-center justify-center bg-card/50">
-        {isImage ? (
-          <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" loading="lazy" />
-        ) : (
-          <span className="text-3xl select-none">{fileIconChar(att.file_type)}</span>
-        )}
-        {isVideo && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <span className="text-white text-2xl">▶</span>
-          </div>
-        )}
-      </div>
-      <div className="px-2 py-1.5">
-        <p className="text-[11px] text-foreground truncate font-medium">{att.file_name}</p>
-        <p className="text-[10px] text-muted-foreground">{att.serial || '—'} · {(att.file_size / 1024).toFixed(0)} KB</p>
-      </div>
+      className="relative group size-14 sm:size-16 rounded-md overflow-hidden cursor-pointer border border-border hover:border-primary/30 transition-colors shrink-0">
+      {isImage ? (
+        <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" loading="lazy" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-secondary">
+          <span className="text-lg select-none">{fileIconChar(att.file_type)}</span>
+        </div>
+      )}
+      {isVideo && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <span className="text-white text-sm">▶</span>
+        </div>
+      )}
       <button
         onClick={handleDelete}
         disabled={deleting}
-        className="absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
+        className="absolute top-0.5 right-0.5 size-4 rounded bg-black/60 text-white text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
         ✕
       </button>
     </div>
@@ -151,11 +147,11 @@ export function AttachmentWidget({ session, onError }) {
         Object.entries(grouped).map(([shotId, atts]) => {
           const shotRef = session.shots?.find(s => s.id === shotId);
           return (
-            <div key={shotId} className="mb-4">
+            <div key={shotId} className="flex items-start gap-3 mb-2">
               {shotRef && (
-                <p className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider mb-2">{shotRef.serial}</p>
+                <span className="text-[10px] text-muted-foreground font-mono font-semibold tracking-wide shrink-0 pt-1 min-w-[60px]">{shotRef.serial}</span>
               )}
-              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {atts.map(att => (
                   <AttachmentCard key={att.id} att={att} onDelete={handleDelete} onClick={() => setViewer(att)} />
                 ))}
