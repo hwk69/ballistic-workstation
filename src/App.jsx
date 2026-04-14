@@ -1325,7 +1325,7 @@ function buildWidgets(sessionFields) {
 const DEF_LAYOUT = Object.keys(STATIC_WIDGETS).filter(k => STATIC_WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
-const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, EDIT: 5, LIBRARY: 6, MATRIX: 7 };
+const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, LIBRARY: 6, MATRIX: 7 };
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 function SecLabel({ children, className = "" }) {
@@ -1734,12 +1734,10 @@ export default function App() {
   const [fields, setFields] = useState(DEFAULT_FIELDS);
   const [customPresets, setCustomPresets] = useState([]);
   const [viewId, setViewId] = useState(null);
-  const [editSessionId, setEditSessionId] = useState(null);
   const [continuingSessionId, setContinuingSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null); const cmpDropdownRef = useRef();
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState("saved"); // "saved" | "saving" | "unsaved"
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
@@ -1748,11 +1746,6 @@ export default function App() {
   const [cur, setCur]       = useState(() => Object.fromEntries(fields.map(f => [f.key, ""])));
   const [editIdx, setEditIdx] = useState(null);
   const [editVal, setEditVal] = useState({});
-  const [esCfg, setEsCfg]   = useState({});
-  const [esShots, setEsShots] = useState([]);
-  const [esNewShot, setEsNewShot] = useState({ fps: "", x: "", y: "", weight: "" });
-  const [esShotEdit, setEsShotEdit]   = useState(null);
-  const [esShotEditVal, setEsShotEditVal] = useState({});
   const [layout, setLayout] = useState(DEF_LAYOUT);
   const [dispOpts, setDispOpts] = useState(DEF_DISP);
   const [cmpSlots, setCmpSlots] = useState([]);
@@ -2126,74 +2119,6 @@ export default function App() {
     }
     e.target.value = "";
   };
-  const openEditSession = id => { const s = log.find(x => x.id === id); if (!s) return; setEditSessionId(id); setEsCfg({ ...s.config }); setEsShots(s.shots.map(sh => ({ ...sh }))); const sf = s.config.fields || fields; setEsNewShot(Object.fromEntries(sf.map(f => [f.key, ""]))); setEsShotEdit(null); setPhase(P.EDIT); };
-  const saveEditSession = async () => {
-    const name = esCfg.sessionName || vars.map(v => esCfg[v.key]).filter(Boolean).join(" | ");
-    try {
-      const saved = await db.updateSession(editSessionId, { config: { ...esCfg, sessionName: name }, shots: [...esShots] });
-      const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
-      setLog(p => p.map(s => s.id === editSessionId ? entry : s));
-      setViewId(editSessionId);
-      setPhase(P.RESULTS);
-    } catch (err) {
-      setDbError('Failed to update session: ' + err.message);
-    }
-  };
-  const esAddShot = () => {
-    const sf = esCfg.fields || fields;
-    for (const f of sf) {
-      if (f.required) {
-        if (f.type === "number" && isNaN(parseFloat(esNewShot[f.key]))) return;
-        if (f.type !== "number" && !esNewShot[f.key] && esNewShot[f.key] !== false) return;
-      }
-    }
-    const data = {};
-    for (const f of sf) {
-      const v = esNewShot[f.key];
-      if (f.type === "number") data[f.key] = v !== "" ? parseFloat(v) : null;
-      else if (f.type === "yesno") data[f.key] = v === "yes" ? true : v === "no" ? false : null;
-      else data[f.key] = v || null;
-    }
-    setEsShots(p => [...p, {
-      fps: data.fps ?? null, x: data.x ?? null, y: data.y ?? null, weight: data.weight ?? null,
-      data,
-      serial: makeSerial(esCfg, p.length + 1, 0),
-      shotNum: p.length + 1,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    }]);
-    setEsNewShot(prev => {
-      const next = {};
-      for (const f of sf) { next[f.key] = f.type === "number" ? prev[f.key] : ""; }
-      return next;
-    });
-  };
-  const esDelShot = i => setEsShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
-  const esStartEdit = i => { setEsShotEdit(i); setEsShotEditVal({ ...esShots[i] }); };
-  const esSaveEdit = () => {
-    if (esShotEdit === null) return;
-    const sf = esCfg.fields || fields;
-    const parsed = {};
-    for (const f of sf) {
-      const raw = esShotEditVal[f.key];
-      if (f.type === "number") {
-        const n = parseFloat(raw);
-        if (f.required && isNaN(n)) return;
-        parsed[f.key] = isNaN(n) ? null : n;
-      } else if (f.type === "yesno") {
-        parsed[f.key] = raw === "yes" || raw === true ? true : raw === "no" || raw === false ? false : null;
-      } else {
-        if (f.required && !raw && raw !== false) return;
-        parsed[f.key] = raw || null;
-      }
-    }
-    const data = { ...((esShots[esShotEdit] || {}).data || {}), ...parsed };
-    setEsShots(p => p.map((s, i) => i === esShotEdit ? {
-      ...s, ...parsed,
-      fps: parsed.fps ?? s.fps, x: parsed.x ?? s.x, y: parsed.y ?? s.y, weight: parsed.weight ?? s.weight,
-      data,
-    } : s));
-    setEsShotEdit(null);
-  };
   const continueSession = async id => {
     const s = log.find(x => x.id === id);
     if (!s) return;
@@ -2206,8 +2131,6 @@ export default function App() {
     setTimeout(() => fpsRef.current?.focus(), 100);
   };
   const viewed = log.find(s => s.id === viewId);
-  const esStats = useMemo(() => calcStats(esShots, esCfg.fields || fields), [esShots, esCfg.fields, fields]);
-
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
     { label: "Setup",   ph: P.SETUP,   onClick: newSession },
@@ -2648,125 +2571,6 @@ export default function App() {
             <span className="text-[10px] text-muted-foreground/50" style={{ fontFamily: "ui-monospace, monospace" }}>{s.shots[0]?.serial} → {s.shots[s.shots.length - 1]?.serial}</span>
           </div>
         </div>
-      </AppShell>
-    );
-  }
-
-  // ─── EDIT ────────────────────────────────────────────────────────────────────
-  if (phase === P.EDIT) {
-    const esFieldSet = esCfg.fields || fields;
-    const esHasXY = esFieldSet.some(f => f.key === "x") && esFieldSet.some(f => f.key === "y");
-    const esValid = esHasXY ? esShots.filter(s => !isNaN(s.x) && !isNaN(s.y)) : [];
-    return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="960px">
-        <div className="flex items-center justify-between mb-7">
-          <h1 className="text-[22px] font-bold tracking-tight text-foreground">Edit Session</h1>
-          <div className="flex gap-2">
-            <Btn onClick={saveEditSession}>Save Changes</Btn>
-            <Btn v="secondary" onClick={() => setPhase(P.HISTORY)}>Cancel</Btn>
-          </div>
-        </div>
-
-        <CardSection title="Configuration" className="mb-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {vars.map(vr => (
-              <SmartSelect key={vr.key} label={vr.label} value={esCfg[vr.key] || ""} onChange={v => setEsCfg(p => ({ ...p, [vr.key]: v }))} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
-            ))}
-            {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"]].map(([lb,k,t]) => (
-              <div key={k} className="flex flex-col">
-                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
-                <input type={t} value={esCfg[k] || ""} onChange={e => setEsCfg(p => ({ ...p, [k]: e.target.value }))} className={inp} />
-              </div>
-            ))}
-          </div>
-        </CardSection>
-
-        {esHasXY && <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          <CardSection title="Preview">
-            {esValid.length >= 2
-              ? <DispersionChart shots={esValid} stats={esStats} size={320} />
-              : <Empty icon={<Crosshair size={18} />}>Need 2 or more valid shots for preview</Empty>}
-          </CardSection>
-          <CardSection title={`Stats (${esValid.length} shots)`}>
-            {esValid.length >= 2
-              ? <div className="grid grid-cols-2 gap-2">
-                  {[["CEP", esStats.cep.toFixed(2), 0, OC.cep],["R90",esStats.r90.toFixed(2), 0, OC.r90],["SD X",esStats.sdX.toFixed(2)],["SD Y",esStats.sdY.toFixed(2)],["Mean FPS",esStats.meanV.toFixed(1),1],["SD FPS",esStats.sdV.toFixed(1)]].map(([k,v,g,ac]) => <SB key={k} label={k} value={v} gold={g} accentColor={ac} />)}
-                </div>
-              : <Empty icon={<BarChart2 size={18} />}>Need 2 or more valid shots</Empty>}
-          </CardSection>
-        </div>}
-
-        <CardSection title={`Shots (${esShots.length})`} className="mb-4">
-          <div className="overflow-auto max-h-64">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-border">
-                  {["#","Serial",...esFieldSet.map(f => f.label),"",""].map(h => (
-                    <th key={h} className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {esShots.map((ss, i) => (
-                  <tr key={ss.id || `new-${i}`} className="border-b border-border">
-                    {esShotEdit === i ? (
-                      <>
-                        <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
-                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
-                        {esFieldSet.map(f => (
-                          <td key={f.key} className="px-1.5 py-1">
-                            <TblInput value={esShotEditVal[f.key] ?? ""} onChange={e => setEsShotEditVal(p => ({ ...p, [f.key]: e.target.value }))} />
-                          </td>
-                        ))}
-                        <td className="px-2 py-1 text-right whitespace-nowrap">
-                          <button onClick={esSaveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
-                          <button onClick={() => setEsShotEdit(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="text-muted-foreground px-2 py-1.5">{ss.shotNum}</td>
-                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{ss.serial}</td>
-                        {esFieldSet.map(f => (
-                          <td key={f.key} className={`px-2 py-1.5 font-mono ${f.required ? "text-foreground" : "text-muted-foreground"}`}>
-                            {(ss.data || ss)[f.key] ?? ss[f.key] ?? "—"}
-                          </td>
-                        ))}
-                        <td className="px-2 py-1.5 text-center">
-                          <ShotAttachBtn shotId={ss.id} sessionId={editSessionId} serial={ss.serial} onError={setDbError} />
-                        </td>
-                        <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                          <button onClick={() => esStartEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
-                          <button onClick={() => esDelShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardSection>
-
-        <CardSection title="Add Shot" className="border-primary/[0.13]">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            {esFieldSet.map(f => (
-              <div key={f.key} className="flex flex-col">
-                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{f.label}</label>
-                {f.type === "yesno" ? (
-                  <select value={esNewShot[f.key] || ""} onChange={e => setEsNewShot(p => ({ ...p, [f.key]: e.target.value }))} className={inp}>
-                    <option value="">—</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                ) : (
-                  <input type={f.type === "number" ? "number" : "text"} step={f.type === "number" ? "any" : undefined} value={esNewShot[f.key] ?? ""} onChange={e => setEsNewShot(p => ({ ...p, [f.key]: e.target.value }))} className={inp} />
-                )}
-              </div>
-            ))}
-          </div>
-          <Btn onClick={esAddShot} disabled={esFieldSet.filter(f => f.required).some(f => f.type === "number" ? isNaN(parseFloat(esNewShot[f.key])) : !esNewShot[f.key])}>Add Shot</Btn>
-        </CardSection>
       </AppShell>
     );
   }
