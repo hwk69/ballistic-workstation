@@ -1735,6 +1735,7 @@ export default function App() {
   const [customPresets, setCustomPresets] = useState([]);
   const [viewId, setViewId] = useState(null);
   const [editSessionId, setEditSessionId] = useState(null);
+  const [continuingSessionId, setContinuingSessionId] = useState(null);
   const fileRef = useRef(); const fpsRef = useRef(); const exportRef = useRef(null); const cmpDropdownRef = useRef();
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -2018,14 +2019,44 @@ export default function App() {
   }, [cur, shots, cfg, existingCount, fields]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
-  const saveEdit = () => { if (editIdx === null) return; const fps = parseFloat(editVal.fps), x = parseFloat(editVal.x), y = parseFloat(editVal.y); if (isNaN(fps) || isNaN(x) || isNaN(y)) return; setShots(p => p.map((s, i) => i === editIdx ? { ...s, ...editVal, fps, x, y } : s)); setEditIdx(null); };
+  const saveEdit = () => {
+    if (editIdx === null) return;
+    const sf = cfg.fields || fields;
+    const parsed = {};
+    for (const f of sf) {
+      const raw = editVal[f.key];
+      if (f.type === "number") {
+        const n = parseFloat(raw);
+        if (f.required && isNaN(n)) return;
+        parsed[f.key] = isNaN(n) ? null : n;
+      } else if (f.type === "yesno") {
+        parsed[f.key] = raw === "yes" || raw === true ? true : raw === "no" || raw === false ? false : null;
+      } else {
+        if (f.required && !raw && raw !== false) return;
+        parsed[f.key] = raw || null;
+      }
+    }
+    const data = { ...((shots[editIdx] || {}).data || {}), ...parsed };
+    setShots(p => p.map((s, i) => i === editIdx ? {
+      ...s, ...parsed,
+      fps: parsed.fps ?? s.fps, x: parsed.x ?? s.x, y: parsed.y ?? s.y, weight: parsed.weight ?? s.weight,
+      data,
+    } : s));
+    setEditIdx(null);
+  };
   const delShot = i => setShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const finishSession = async () => {
     if (saving) return;
     setSaving(true);
     const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
     try {
-      const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
+      let saved;
+      if (continuingSessionId) {
+        // Update the existing session (preserves shot IDs and attachments)
+        saved = await db.updateSession(continuingSessionId, { config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
+      } else {
+        saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [...shots] });
+      }
       // Upload any queued attachments, matching by serial number
       const pending = Object.entries(pendingAttachments);
       if (pending.length > 0) {
@@ -2037,9 +2068,14 @@ export default function App() {
         );
       }
       const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
-      setLog(p => [entry, ...p]);
+      if (continuingSessionId) {
+        setLog(p => p.map(s => s.id === continuingSessionId ? entry : s));
+      } else {
+        setLog(p => [entry, ...p]);
+      }
       setViewId(saved.id);
       setPendingAttachments({});
+      setContinuingSessionId(null);
       setPhase(P.RESULTS);
     } catch (err) {
       setDbError('Failed to save session: ' + err.message);
@@ -2145,12 +2181,7 @@ export default function App() {
     setShots(s.shots.map(sh => ({ ...sh })));
     const sessionFields = s.config.fields || fields;
     setCur(Object.fromEntries(sessionFields.map(f => [f.key, ""])));
-    try {
-      await db.deleteSession(id);
-      setLog(p => p.filter(x => x.id !== id));
-    } catch (err) {
-      setDbError('Failed to continue session: ' + err.message);
-    }
+    setContinuingSessionId(id);
     setPhase(P.FIRE);
     setTimeout(() => fpsRef.current?.focus(), 100);
   };
@@ -2412,33 +2443,64 @@ export default function App() {
                   </thead>
                   <tbody>
                     {shots.map((s, i) => (
-                      <tr key={i} className="border-b border-border">
-                        <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
-                        <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
-                        {sf.map(f => {
-                          const val = (s.data || s)[f.key];
-                          let display = "";
-                          if (val === true) display = "Yes";
-                          else if (val === false) display = "No";
-                          else if (val !== null && val !== undefined) display = String(val);
-                          return (
-                            <td key={f.key} className={cn(
-                              "px-2 py-1.5",
-                              f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
-                            )}>{display}</td>
-                          );
-                        })}
-                        <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
-                        <td className="px-2 py-1.5">
-                          <ShotAttachBtn
-                            serial={s.serial}
-                            pendingCount={(pendingAttachments[s.serial] || []).length}
-                            onQueue={queueAttachment}
-                            onError={setDbError} />
-                        </td>
-                        <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                          <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
-                        </td>
+                      <tr key={s.id || s.serial || `new-${i}`} className="border-b border-border">
+                        {editIdx === i ? (
+                          <>
+                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                            {sf.map(f => (
+                              <td key={f.key} className="px-1.5 py-1">
+                                <TblInput value={editVal[f.key] ?? ""} onChange={e => setEditVal(p => ({ ...p, [f.key]: e.target.value }))} />
+                              </td>
+                            ))}
+                            <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                            <td className="px-2 py-1.5">
+                              <ShotAttachBtn
+                                shotId={s.id}
+                                sessionId={continuingSessionId}
+                                serial={s.serial}
+                                pendingCount={(pendingAttachments[s.serial] || []).length}
+                                onQueue={queueAttachment}
+                                onError={setDbError} />
+                            </td>
+                            <td className="px-2 py-1 text-right whitespace-nowrap">
+                              <button onClick={saveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
+                              <button onClick={() => setEditIdx(null)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer">✕</button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="text-muted-foreground px-2 py-1.5">{s.shotNum}</td>
+                            <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                            {sf.map(f => {
+                              const val = (s.data || s)[f.key];
+                              let display = "";
+                              if (val === true) display = "Yes";
+                              else if (val === false) display = "No";
+                              else if (val !== null && val !== undefined) display = String(val);
+                              return (
+                                <td key={f.key} className={cn(
+                                  "px-2 py-1.5",
+                                  f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                                )}>{display}</td>
+                              );
+                            })}
+                            <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
+                            <td className="px-2 py-1.5">
+                              <ShotAttachBtn
+                                shotId={s.id}
+                                sessionId={continuingSessionId}
+                                serial={s.serial}
+                                pendingCount={(pendingAttachments[s.serial] || []).length}
+                                onQueue={queueAttachment}
+                                onError={setDbError} />
+                            </td>
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                              <button onClick={() => startEdit(i)} className="text-muted-foreground text-xs bg-transparent border-none cursor-pointer mr-2">Edit</button>
+                              <button onClick={() => delShot(i)} className="text-destructive text-xs bg-transparent border-none cursor-pointer">Del</button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
