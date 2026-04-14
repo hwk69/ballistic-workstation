@@ -1741,6 +1741,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("saved"); // "saved" | "saving" | "unsaved"
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
@@ -1865,6 +1866,29 @@ export default function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [cmpDropdownOpen]);
+
+  // Auto-save: debounce writes to DB when session exists
+  useEffect(() => {
+    if (!continuingSessionId) return;
+    setSaveStatus("unsaved");
+    const timer = setTimeout(async () => {
+      setSaveStatus("saving");
+      try {
+        const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
+        const saved = await db.updateSession(continuingSessionId, {
+          config: { ...cfg, sessionName: name, fields: cfg.fields || fields },
+          shots: [...shots],
+        });
+        const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
+        setLog(p => p.map(s => s.id === continuingSessionId ? entry : s));
+        setSaveStatus("saved");
+      } catch (err) {
+        setDbError("Auto-save failed: " + err.message);
+        setSaveStatus("unsaved");
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [continuingSessionId, shots, cfg]);
 
   const saveLayoutAll = useCallback(async upd => {
     const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
@@ -2008,6 +2032,34 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setShots(p => [...p, shot]);
+    // On first shot of a new session, save to DB so auto-save can take over
+    if (!continuingSessionId && shots.length === 0) {
+      (async () => {
+        try {
+          const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
+          const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [shot] });
+          // Upload any pending attachments
+          const pending = Object.entries(pendingAttachments);
+          if (pending.length > 0) {
+            await Promise.allSettled(
+              pending.flatMap(([serial, files]) => {
+                const sh = saved.shots.find(s => s.serial === serial);
+                return files.map(file => db.uploadAttachment(file, sh?.id ?? null, saved.id));
+              })
+            );
+            setPendingAttachments({});
+          }
+          setContinuingSessionId(saved.id);
+          setShots(saved.shots.map(sh => ({ ...sh })));
+          const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
+          setLog(p => [entry, ...p]);
+          setViewId(saved.id);
+          setSaveStatus("saved");
+        } catch (err) {
+          setDbError("Failed to save session: " + err.message);
+        }
+      })();
+    }
     // Clear fields — keep number field values for repeat entry
     setCur(prev => {
       const next = {};
@@ -2017,7 +2069,7 @@ export default function App() {
       return next;
     });
     setTimeout(() => fpsRef.current?.focus(), 50);
-  }, [cur, shots, cfg, existingCount, fields]);
+  }, [cur, shots, cfg, existingCount, fields, continuingSessionId, vars, pendingAttachments]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => { setEditIdx(i); setEditVal({ ...shots[i] }); };
   const saveEdit = () => {
@@ -2325,6 +2377,11 @@ export default function App() {
           <div className="text-muted-foreground text-[11px] mt-1.5 font-mono">
             Next: {makeSerial(cfg, shots.length + 1, existingCount)}
           </div>
+          {continuingSessionId && (
+            <div className={cn("text-[10px] mt-1", saveStatus === "saving" ? "text-yellow-500" : saveStatus === "saved" ? "text-emerald-500" : "text-muted-foreground")}>
+              {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}
+            </div>
+          )}
         </div>
       </div>
 
