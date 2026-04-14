@@ -1151,6 +1151,103 @@ function ShotTable({ shots, session }) {
   );
 }
 
+// ─── CmpShotLog — comparison shot log with attachment carousel ───────────────
+function CmpShotLog({ resolved, commonFields }) {
+  const [attachments, setAttachments] = useState([]);
+  const [carousel, setCarousel] = useState(null);
+
+  useEffect(() => {
+    const ids = resolved.map(r => r.session.id);
+    if (!ids.length) return;
+    db.getAttachments({ sessionIds: ids }).then(setAttachments).catch(() => {});
+  }, [resolved.map(r => r.session.id).join(',')]);
+
+  const attByShotId = useMemo(() => {
+    const m = {};
+    for (const a of attachments) { const k = a.shot_id || 'none'; (m[k] || (m[k] = [])).push(a); }
+    return m;
+  }, [attachments]);
+
+  const allShots = useMemo(() => resolved.flatMap(r =>
+    [...r.shots]
+      .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
+      .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color }))
+  ), [resolved]);
+
+  return (
+    <>
+      <div className="overflow-auto max-h-80">
+        <table className="w-full text-xs border-collapse">
+          <thead className="sticky top-0 bg-card z-10">
+            <tr className="border-b border-border">
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Session</th>
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+              {commonFields.map(f => (
+                <th key={f.key} className={cn(
+                  "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
+                  f.type === "number" ? "text-right" : "text-left"
+                )}>{f.label}</th>
+              ))}
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-center w-10">
+                <Paperclip size={11} className="inline-block" />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {allShots.map((s, i) => {
+              const shotAtts = attByShotId[s.id] || [];
+              return (
+                <tr key={i} className="border-b transition-colors"
+                  style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
+                  <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
+                  <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
+                  <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
+                  {commonFields.map(f => {
+                    const val = (s.data || s)[f.key];
+                    let display = "";
+                    if (val === true) display = "Yes";
+                    else if (val === false) display = "No";
+                    else if (val !== null && val !== undefined) display = String(val);
+                    return (
+                      <td key={f.key} className={cn(
+                        "px-2.5 py-1.5",
+                        f.type === "number" ? "text-right font-mono text-foreground" : "text-foreground"
+                      )}>{display || "—"}</td>
+                    );
+                  })}
+                  <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+                  <td className="px-2.5 py-1.5 text-center">
+                    {shotAtts.length > 0 ? (
+                      <button
+                        onClick={() => setCarousel({ shotId: s.id, serial: s.serial, atts: shotAtts })}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/8 hover:bg-primary/15 text-primary cursor-pointer border-none transition-colors"
+                        title={`${shotAtts.length} attachment${shotAtts.length > 1 ? 's' : ''}`}>
+                        <Paperclip size={10} />
+                        <span className="text-[10px] font-bold">{shotAtts.length}</span>
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground/30">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {carousel && (
+        <ShotCarousel
+          attachments={carousel.atts}
+          serial={carousel.serial}
+          onClose={() => setCarousel(null)}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── AutoSizeChart — fills its container and passes px dims to render fn ──────
 function AutoSizeChart({ render: renderFn }) {
   const ref = useRef();
@@ -2927,55 +3024,7 @@ export default function App() {
         </div>
       );
       if (key === 'shotLog') {
-        const allShots = resolved.flatMap(r =>
-          [...r.shots]
-            .sort((a, b) => (a.shotNum || 0) - (b.shotNum || 0))
-            .map(s => ({ ...s, sessionName: r.session.config.sessionName, sessionColor: r.color }))
-        );
-        return (
-          <div className="overflow-auto max-h-80">
-            <table className="w-full text-xs border-collapse">
-              <thead className="sticky top-0 bg-card z-10">
-                <tr className="border-b border-border">
-                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Session</th>
-                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
-                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
-                  {commonFields.map(f => (
-                    <th key={f.key} className={cn(
-                      "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                      f.type === "number" ? "text-right" : "text-left"
-                    )}>{f.label}</th>
-                  ))}
-                  <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allShots.map((s, i) => (
-                  <tr key={i} className="border-b transition-colors"
-                    style={{ background: s.sessionColor + "18", borderColor: s.sessionColor + "30" }}>
-                    <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>
-                    <td className="px-2.5 py-1.5" style={{ color: s.sessionColor + "99" }}>{s.shotNum}</td>
-                    <td className="px-2.5 py-1.5 font-mono text-[11px]" style={{ color: s.sessionColor + "99" }}>{s.serial}</td>
-                    {commonFields.map(f => {
-                      const val = (s.data || s)[f.key];
-                      let display = "";
-                      if (val === true) display = "Yes";
-                      else if (val === false) display = "No";
-                      else if (val !== null && val !== undefined) display = String(val);
-                      return (
-                        <td key={f.key} className={cn(
-                          "px-2.5 py-1.5",
-                          f.type === "number" ? "text-right font-mono text-foreground" : "text-foreground"
-                        )}>{display || "—"}</td>
-                      );
-                    })}
-                    <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
+        return <CmpShotLog resolved={resolved} commonFields={commonFields} />;
       }
       if (key === 'attachments') return (
         <LibraryPage
