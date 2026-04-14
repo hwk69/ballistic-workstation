@@ -2100,7 +2100,12 @@ export default function App() {
     setTimeout(() => fpsRef.current?.focus(), 50);
   }, [cur, shots, cfg, existingCount, fields, continuingSessionId, vars, pendingAttachments]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
-  const startEdit = i => { const s = shots[i]; setEditIdx(i); setEditVal({ ...s, ...(s.data || {}) }); };
+  const startEdit = i => {
+    const s = shots[i]; const d = s.data || {};
+    const merged = {};
+    for (const f of (cfg.fields || fields)) { const v = d[f.key] ?? s[f.key]; merged[f.key] = v !== null && v !== undefined ? (f.type === "yesno" ? (v === true ? "yes" : v === false ? "no" : "") : String(v)) : ""; }
+    setEditIdx(i); setEditVal(merged);
+  };
   const saveEdit = () => {
     if (editIdx === null) return;
     const sf = cfg.fields || fields;
