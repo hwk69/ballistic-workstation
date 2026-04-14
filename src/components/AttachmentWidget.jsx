@@ -144,21 +144,23 @@ export function AttachmentWidget({ session, onError }) {
       {attachments.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4">No attachments yet. Add photos or videos of the shots.</p>
       ) : (
-        Object.entries(grouped).map(([shotId, atts]) => {
-          const shotRef = session.shots?.find(s => s.id === shotId);
-          return (
-            <div key={shotId} className="flex items-start gap-3 mb-2">
-              {shotRef && (
-                <span className="text-[10px] text-muted-foreground font-mono font-semibold tracking-wide shrink-0 pt-1 min-w-[60px]">{shotRef.serial}</span>
-              )}
-              <div className="flex flex-wrap gap-1.5">
-                {atts.map(att => (
-                  <AttachmentCard key={att.id} att={att} onDelete={handleDelete} onClick={() => setViewer(att)} />
-                ))}
+        <div className="flex flex-wrap gap-3">
+          {Object.entries(grouped).map(([shotId, atts]) => {
+            const shotRef = session.shots?.find(s => s.id === shotId);
+            return (
+              <div key={shotId} className="flex flex-col items-start">
+                <span className="text-[9px] text-muted-foreground font-mono font-bold uppercase tracking-wider mb-1">
+                  {shotRef?.serial || 'Files'}
+                </span>
+                <div className="flex gap-1 overflow-x-auto max-w-[200px] pb-0.5">
+                  {atts.map(att => (
+                    <AttachmentCard key={att.id} att={att} onDelete={handleDelete} onClick={() => setViewer(att)} />
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })
+            );
+          })}
+        </div>
       )}
 
       <MediaViewer att={viewer} onClose={() => setViewer(null)} />
