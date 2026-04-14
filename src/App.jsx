@@ -2103,7 +2103,7 @@ export default function App() {
     setViewId(continuingSessionId);
     setPhase(P.RESULTS);
   };
-  const newSession = () => { setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
+  const newSession = () => { setContinuingSessionId(null); setSaveStatus("saved"); setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
   const delSession = async id => {
     try {
       await db.deleteSession(id);
@@ -2211,7 +2211,7 @@ export default function App() {
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
     { label: "Setup",   ph: P.SETUP,   onClick: newSession },
-    { label: "Fire",    ph: P.FIRE,    disabled: phase !== P.FIRE },
+    { label: "Fire",    ph: P.FIRE,    disabled: phase !== P.FIRE && !continuingSessionId, onClick: () => { if (continuingSessionId) setPhase(P.FIRE); } },
     { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
     { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
     { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
@@ -2586,8 +2586,7 @@ export default function App() {
       <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
         {/* Toolbar */}
         <div className="flex justify-end items-center mb-6 flex-wrap gap-2">
-          <Btn v="secondary" onClick={() => openEditSession(s.id)}>Edit</Btn>
-          <Btn v="secondary" onClick={() => continueSession(s.id)}>+ Shots</Btn>
+          <Btn v="secondary" onClick={() => continueSession(s.id)}>Edit</Btn>
           {log.length >= 2 && (
             <Btn v="secondary" onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: log.find(x => x.id !== s.id)?.id, color: PALETTE[1] }]); setPhase(P.CMP); }}>Compare</Btn>
           )}
@@ -3732,8 +3731,7 @@ export default function App() {
                     {/* Actions */}
                     <div className="flex items-center shrink-0 border-l border-border h-full">
                       <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
-                      <button onClick={() => openEditSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
-                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">+&nbsp;Shots</button>
+                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
                       <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
                       <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
                     </div>
