@@ -2365,7 +2365,7 @@ export default function App() {
           ))}
         </div>
         <div className="flex gap-2">
-          <Btn onClick={addShot} disabled={shots.length >= total || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
+          <Btn onClick={addShot} disabled={(!continuingSessionId && shots.length >= total) || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
           <Btn v="secondary" onClick={finishSession} disabled={!continuingSessionId || saveStatus === "saving"}>View Results →</Btn>
         </div>
       </div>
