@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useScroll } from "@/components/use-scroll";
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
-import { Crosshair, BarChart2, History, X, Plus, Paperclip } from 'lucide-react';
+import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
@@ -1740,6 +1740,7 @@ export default function App() {
   const [newVarName, setNewVarName] = useState("");
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [cfg, setCfg] = useState({ rifleRate: "", sleeveType: "", tailType: "", combustionChamber: "", load22: "", shotCount: "10", notes: "", sessionName: "", date: new Date().toISOString().split("T")[0] });
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
@@ -2325,6 +2326,35 @@ export default function App() {
             Next: {makeSerial(cfg, shots.length + 1, existingCount)}
           </div>
         </div>
+      </div>
+
+      {/* Collapsible config editor */}
+      <div className="bg-card border border-border rounded-xl mb-5 overflow-hidden">
+        <button
+          onClick={() => setConfigOpen(p => !p)}
+          className="w-full flex items-center justify-between px-5 py-3 bg-transparent border-none cursor-pointer text-left">
+          <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Session Config</span>
+          <ChevronDown size={14} className={cn("text-muted-foreground transition-transform", configOpen && "rotate-180")} />
+        </button>
+        {configOpen && (
+          <div className="px-5 pb-5 border-t border-border">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+              {vars.map(vr => (
+                <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
+              ))}
+              {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"]].map(([lb,k,t]) => (
+                <div key={k} className="flex flex-col">
+                  <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lb}</label>
+                  <input type={t} value={cfg[k] || ""} onChange={e => up(k, e.target.value)} className={inp} />
+                </div>
+              ))}
+              <div className="flex flex-col">
+                <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shot Count</label>
+                <input type="number" min="1" value={cfg.shotCount || ""} onChange={e => up("shotCount", e.target.value)} className={inp} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Shot entry */}
