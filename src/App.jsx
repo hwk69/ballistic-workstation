@@ -7,7 +7,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
 import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
-import { AttachmentWidget } from './components/AttachmentWidget.jsx';
+import { AttachmentWidget, ShotCarousel } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
 import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
@@ -1065,46 +1065,89 @@ function XYTrack({ shots, width = 360 }) {
 
 function ShotTable({ shots, session }) {
   const sf = session?.config?.fields || DEFAULT_FIELDS;
+  const [attachments, setAttachments] = useState([]);
+  const [carousel, setCarousel] = useState(null); // { shotId, serial, atts }
+
+  useEffect(() => {
+    if (!session?.id) return;
+    db.getAttachments({ sessionId: session.id }).then(setAttachments).catch(() => {});
+  }, [session?.id]);
+
+  // Group attachments by shot_id
+  const attByShotId = useMemo(() => {
+    const m = {};
+    for (const a of attachments) { const k = a.shot_id || 'none'; (m[k] || (m[k] = [])).push(a); }
+    return m;
+  }, [attachments]);
+
   return (
-    <div className="overflow-auto max-h-52">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="border-b border-border">
-            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
-            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
-            {sf.map(f => (
-              <th key={f.key} className={cn(
-                "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
-                f.type === "number" ? "text-right" : "text-left"
-              )}>{f.label}</th>
-            ))}
-            <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shots.map((s, i) => (
-            <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40">
-              <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
-              <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
-              {sf.map(f => {
-                const val = (s.data || s)[f.key];
-                let display = "";
-                if (val === true) display = "Yes";
-                else if (val === false) display = "No";
-                else if (val !== null && val !== undefined) display = String(val);
-                return (
-                  <td key={f.key} className={cn(
-                    "px-2.5 py-1.5",
-                    f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
-                  )}>{display || "—"}</td>
-                );
-              })}
-              <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+    <>
+      <div className="overflow-auto max-h-52">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+              {sf.map(f => (
+                <th key={f.key} className={cn(
+                  "text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5",
+                  f.type === "number" ? "text-right" : "text-left"
+                )}>{f.label}</th>
+              ))}
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
+              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-center w-10">
+                <Paperclip size={11} className="inline-block" />
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {shots.map((s, i) => {
+              const shotAtts = attByShotId[s.id] || [];
+              return (
+                <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40">
+                  <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
+                  <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                  {sf.map(f => {
+                    const val = (s.data || s)[f.key];
+                    let display = "";
+                    if (val === true) display = "Yes";
+                    else if (val === false) display = "No";
+                    else if (val !== null && val !== undefined) display = String(val);
+                    return (
+                      <td key={f.key} className={cn(
+                        "px-2.5 py-1.5",
+                        f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground"
+                      )}>{display || "—"}</td>
+                    );
+                  })}
+                  <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+                  <td className="px-2.5 py-1.5 text-center">
+                    {shotAtts.length > 0 ? (
+                      <button
+                        onClick={() => setCarousel({ shotId: s.id, serial: s.serial, atts: shotAtts })}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/8 hover:bg-primary/15 text-primary cursor-pointer border-none transition-colors"
+                        title={`${shotAtts.length} attachment${shotAtts.length > 1 ? 's' : ''}`}>
+                        <Paperclip size={10} />
+                        <span className="text-[10px] font-bold">{shotAtts.length}</span>
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground/30">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {carousel && (
+        <ShotCarousel
+          attachments={carousel.atts}
+          serial={carousel.serial}
+          onClose={() => setCarousel(null)}
+        />
+      )}
+    </>
   );
 }
 

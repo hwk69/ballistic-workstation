@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { uploadAttachment, getAttachments, deleteAttachment } from '../lib/db.js';
 
 function fileIconChar(fileType) {
@@ -72,6 +72,164 @@ function MediaViewer({ att, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Shot Carousel Lightbox ──────────────────────────────────────────────────
+// Opens as a full-screen overlay showing all attachments for one shot
+// with left/right navigation, thumbnail strip, and keyboard support.
+export function ShotCarousel({ attachments, serial, onClose }) {
+  const [idx, setIdx] = useState(0);
+  const thumbRef = useRef(null);
+
+  const count = attachments?.length || 0;
+  const current = attachments?.[idx];
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (!count) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') setIdx(p => (p - 1 + count) % count);
+      if (e.key === 'ArrowRight') setIdx(p => (p + 1) % count);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [count, onClose]);
+
+  // Keep active thumbnail in view
+  useEffect(() => {
+    if (!thumbRef.current) return;
+    const active = thumbRef.current.children[idx];
+    if (active) active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }, [idx]);
+
+  if (!count || !current) return null;
+
+  const isImage = current.file_type?.startsWith('image/');
+  const isVideo = current.file_type?.startsWith('video/');
+
+  const navBtn = "absolute top-1/2 -translate-y-1/2 z-20 size-10 rounded-full flex items-center justify-center cursor-pointer border-none transition-all duration-200";
+
+  return (
+    <div className="fixed inset-0 z-[600] flex flex-col" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/92 backdrop-blur-sm" />
+
+      {/* Header */}
+      <div className="relative z-10 flex items-center justify-between px-5 py-3.5 shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[13px] font-bold text-white/90 tracking-wide">{serial}</span>
+          <span className="text-[11px] text-white/40 font-medium">{idx + 1} / {count}</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="size-8 rounded-full bg-white/8 hover:bg-white/15 text-white/70 hover:text-white flex items-center justify-center cursor-pointer border-none transition-all duration-200"
+          aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M1 1l12 12M13 1L1 13" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Main viewer area */}
+      <div className="relative z-10 flex-1 flex items-center justify-center px-16 min-h-0" onClick={e => e.stopPropagation()}>
+        {/* Left arrow */}
+        {count > 1 && (
+          <button
+            onClick={() => setIdx(p => (p - 1 + count) % count)}
+            className={`${navBtn} left-3 bg-white/8 hover:bg-white/15 text-white/60 hover:text-white`}
+            aria-label="Previous">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4L6 9l5 5" />
+            </svg>
+          </button>
+        )}
+
+        {/* Media display */}
+        <div className="flex items-center justify-center w-full h-full max-h-[calc(100vh-180px)]">
+          {isImage && (
+            <img
+              key={current.id}
+              src={current.file_url}
+              alt={current.file_name}
+              className="max-w-full max-h-full object-contain rounded-lg select-none animate-[fadeScale_200ms_ease-out]"
+              draggable={false}
+            />
+          )}
+          {isVideo && (
+            <video
+              key={current.id}
+              src={current.file_url}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg"
+            />
+          )}
+          {!isImage && !isVideo && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-10 text-center max-w-sm">
+              <p className="text-4xl mb-3">{fileIconChar(current.file_type)}</p>
+              <p className="text-white/80 font-medium text-sm mb-1">{current.file_name}</p>
+              <a href={current.file_url} target="_blank" rel="noreferrer"
+                className="text-[#FFDF00] text-xs hover:underline">Download ↗</a>
+            </div>
+          )}
+        </div>
+
+        {/* Right arrow */}
+        {count > 1 && (
+          <button
+            onClick={() => setIdx(p => (p + 1) % count)}
+            className={`${navBtn} right-3 bg-white/8 hover:bg-white/15 text-white/60 hover:text-white`}
+            aria-label="Next">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 4l5 5-5 5" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Thumbnail strip */}
+      {count > 1 && (
+        <div className="relative z-10 px-5 py-3 shrink-0" onClick={e => e.stopPropagation()}>
+          <div ref={thumbRef} className="flex gap-2 justify-center overflow-x-auto py-1 scrollbar-none">
+            {attachments.map((att, i) => {
+              const isImg = att.file_type?.startsWith('image/');
+              const active = i === idx;
+              return (
+                <button
+                  key={att.id}
+                  onClick={() => setIdx(i)}
+                  className={`shrink-0 size-12 sm:size-14 rounded-lg overflow-hidden cursor-pointer border-2 transition-all duration-200 p-0 bg-transparent ${
+                    active
+                      ? 'border-[#FFDF00] ring-1 ring-[#FFDF00]/40 scale-105'
+                      : 'border-white/10 hover:border-white/30 opacity-50 hover:opacity-80'
+                  }`}
+                  aria-label={`View ${att.file_name}`}>
+                  {isImg ? (
+                    <img src={att.file_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-white/5">
+                      <span className="text-sm select-none">{fileIconChar(att.file_type)}</span>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* CSS animation for image transitions */}
+      <style>{`
+        @keyframes fadeScale {
+          from { opacity: 0; transform: scale(0.97); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .scrollbar-none { scrollbar-width: none; }
+        .scrollbar-none::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }
