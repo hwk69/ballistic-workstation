@@ -1861,8 +1861,11 @@ export default function App() {
   }, [cmpDropdownOpen]);
 
   // Auto-save: debounce writes to DB when session exists
+  const autoSaveIdUpdate = useRef(false);
   useEffect(() => {
     if (!continuingSessionId) return;
+    // Skip if this render was triggered by auto-save assigning IDs
+    if (autoSaveIdUpdate.current) { autoSaveIdUpdate.current = false; return; }
     setSaveStatus("unsaved");
     const timer = setTimeout(async () => {
       setSaveStatus("saving");
@@ -1874,6 +1877,23 @@ export default function App() {
         });
         const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
         setLog(p => p.map(s => s.id === continuingSessionId ? entry : s));
+        // Update local shots with DB IDs so ShotAttachBtn can upload directly
+        const needsIds = shots.some((s, i) => !s.id && saved.shots[i]?.id);
+        if (needsIds) {
+          autoSaveIdUpdate.current = true;
+          setShots(saved.shots.map(sh => ({ ...sh })));
+        }
+        // Process any pending attachments now that shots have IDs
+        const pending = Object.entries(pendingAttachments);
+        if (pending.length > 0) {
+          await Promise.allSettled(
+            pending.flatMap(([serial, files]) => {
+              const sh = saved.shots.find(s => s.serial === serial);
+              return files.map(file => db.uploadAttachment(file, sh?.id ?? null, saved.id));
+            })
+          );
+          setPendingAttachments({});
+        }
         setSaveStatus("saved");
       } catch (err) {
         setDbError("Auto-save failed: " + err.message);
@@ -2436,7 +2456,7 @@ export default function App() {
                                 sessionId={continuingSessionId}
                                 serial={s.serial}
                                 pendingCount={(pendingAttachments[s.serial] || []).length}
-                                onQueue={queueAttachment}
+                                onQueue={s.id ? undefined : queueAttachment}
                                 onError={setDbError} />
                             </td>
                             <td className="px-2 py-1 text-right whitespace-nowrap">
@@ -2468,7 +2488,7 @@ export default function App() {
                                 sessionId={continuingSessionId}
                                 serial={s.serial}
                                 pendingCount={(pendingAttachments[s.serial] || []).length}
-                                onQueue={queueAttachment}
+                                onQueue={s.id ? undefined : queueAttachment}
                                 onError={setDbError} />
                             </td>
                             <td className="px-2 py-1.5 text-right whitespace-nowrap">
