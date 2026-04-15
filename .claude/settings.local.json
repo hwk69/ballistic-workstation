@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx shadcn@latest add \"https://21st.dev/r/erikx/mini-navbar\")",
+      "Bash(npx shadcn@latest add \"https://21st.dev/r/beratberkayg/stat-card\")",
+      "Bash(npx shadcn@latest add \"https://21st.dev/r/serafimcloud/badge-delta\")",
+      "WebFetch(domain:21st.dev)",
+      "Bash(git *)",
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(node *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "cmd.exe /c \"cd /d C:\\Users\\hkrause\\ballistic-workstation && npx vite build --mode production\" 2>&1 && echo '{\"continue\": true}' || echo '{\"continue\": false, \"stopReason\": \"Build failed before push — fix errors first.\"}'",
+            "timeout": 60,
+            "statusMessage": "Checking build before push..."
+          }
+        ]
+      }
+    ]
+  }
+}
