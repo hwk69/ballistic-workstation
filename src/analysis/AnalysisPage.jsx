@@ -1297,6 +1297,33 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     return () => document.removeEventListener("mousedown", handler);
   }, [loadMenuOpen]);
 
+  // ─── Derived data ──────────────────────────────────────────────────────────
+  const resolved = useMemo(
+    () => resolveSlots(slots, log, fields, calcStats),
+    [slots, log, fields]
+  );
+  const mode = resolved.length <= 1 ? "single" : "multi";
+  const allFields = useMemo(() => unionFields(resolved), [resolved]);
+  const commonFields = useMemo(() => intersectFields(resolved), [resolved]);
+  const registry = useMemo(() => buildWidgetRegistry(allFields, commonFields, mode), [allFields, commonFields, mode]);
+
+  const activeLayout = useMemo(() => {
+    if (layoutItems) {
+      // Filter out widgets whose requirements are no longer met
+      return layoutItems.filter((item) => {
+        const def = registry[item.key];
+        return def && def.requires(mode === "single" ? allFields : commonFields);
+      });
+    }
+    return autoLayout(allFields, commonFields, resolved.length);
+  }, [layoutItems, registry, allFields, commonFields, mode, resolved.length]);
+
+  const available = useMemo(
+    () => getAvailableWidgets(registry, activeLayout, mode === "single" ? allFields : commonFields),
+    [registry, activeLayout, allFields, commonFields, mode]
+  );
+
+  // ─── Save/load analysis handlers ────────────────────────────────────────────
   const handleSaveAnalysis = useCallback(async () => {
     const title = analysisTitle || (mode === "multi" ? "Comparison" : resolved[0]?.session?.config?.sessionName || "Analysis");
     setSaveStatus("saving");
@@ -1335,32 +1362,6 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
       onError?.("Delete failed: " + err.message);
     }
   }, [onError]);
-
-  // ─── Derived data ──────────────────────────────────────────────────────────
-  const resolved = useMemo(
-    () => resolveSlots(slots, log, fields, calcStats),
-    [slots, log, fields]
-  );
-  const mode = resolved.length <= 1 ? "single" : "multi";
-  const allFields = useMemo(() => unionFields(resolved), [resolved]);
-  const commonFields = useMemo(() => intersectFields(resolved), [resolved]);
-  const registry = useMemo(() => buildWidgetRegistry(allFields, commonFields, mode), [allFields, commonFields, mode]);
-
-  const activeLayout = useMemo(() => {
-    if (layoutItems) {
-      // Filter out widgets whose requirements are no longer met
-      return layoutItems.filter((item) => {
-        const def = registry[item.key];
-        return def && def.requires(mode === "single" ? allFields : commonFields);
-      });
-    }
-    return autoLayout(allFields, commonFields, resolved.length);
-  }, [layoutItems, registry, allFields, commonFields, mode, resolved.length]);
-
-  const available = useMemo(
-    () => getAvailableWidgets(registry, activeLayout, mode === "single" ? allFields : commonFields),
-    [registry, activeLayout, allFields, commonFields, mode]
-  );
 
   // ─── Layout actions ────────────────────────────────────────────────────────
   const handleReorder = useCallback((newItems) => setLayoutItems(newItems), []);
