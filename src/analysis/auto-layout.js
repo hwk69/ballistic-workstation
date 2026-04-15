@@ -13,36 +13,8 @@ export function autoLayout(allFields, commonFields, sessionCount) {
   const hasFps = fieldKeys.has("fps");
   const yesnoFields = fields.filter((f) => f.type === "yesno");
 
-  const result = [];
-
-  if (mode === "single") {
-    // Slot 1: Dispersion if X/Y present
-    if (hasXY) result.push({ key: "dispersion", span: "half" });
-    // Slot 2: Metrics Summary always
-    result.push({ key: "metricsSummary", span: "half" });
-    // Slot 3: First yes/no → Attainment Rate; else skip
-    if (yesnoFields.length > 0) {
-      result.push({ key: `attainment:${yesnoFields[0].key}`, span: "half" });
-    }
-    // Slot 4: Shot Table
-    result.push({ key: "shotTable", span: "full" });
-    // Slot 5: Attachments always at bottom
-    result.push({ key: "attachments", span: "full" });
-  } else {
-    // Multi-session mode
-    // Slot 1: Dispersion overlay
-    if (hasXY) result.push({ key: "dispersion", span: "half" });
-    // Slot 2: Metrics comparison table
-    result.push({ key: "metricsSummary", span: "half" });
-    // Slot 3: Custom Rankings
-    result.push({ key: "customRankings", span: "full" });
-    // Slot 4: Shot Table
-    result.push({ key: "shotTable", span: "full" });
-    // Slot 5: Attachments
-    result.push({ key: "attachments", span: "full" });
-  }
-
-  return result;
+  // Default: only shot table. User adds more via "+ Add Widget".
+  return [{ key: "shotTable", span: "full" }];
 }
 
 /**
