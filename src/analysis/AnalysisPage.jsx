@@ -14,6 +14,19 @@ import WidgetGrid from "./WidgetGrid.jsx";
 import { AttachmentWidget, ShotCarousel } from "../components/AttachmentWidget.jsx";
 import { Paperclip } from "lucide-react";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Find the fieldStats key for a given label across resolved sessions. */
+function findFieldKeyFromResolved(resolved, label) {
+  for (const r of resolved) {
+    if (!r.stats.fieldStats) continue;
+    for (const [key, fs] of Object.entries(r.stats.fieldStats)) {
+      if (fs.label === label) return key;
+    }
+  }
+  return "";
+}
+
 // ─── Shared UI primitives (kept minimal, imported patterns from App.jsx) ──────
 
 function AutoSizeChart({ render: renderFn }) {
@@ -465,7 +478,7 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
   }
 
   // ─── Multi-session: comparison table ───────────────────────────────────────
-  const metrics = ALL_METRICS.filter((m) => {
+  const builtInMetrics = ALL_METRICS.filter((m) => {
     if (m[1] === "cep" || m[1] === "r90" || m[1] === "mr" || m[1] === "es" || m[1] === "sdX" || m[1] === "sdY" || m[1] === "sdR" || m[1] === "mpiX" || m[1] === "mpiY") {
       return resolved.every((r) => r.stats.hasXY);
     }
@@ -474,7 +487,40 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
     }
     return true;
   });
-  const visibleMetrics = metrics.filter((m) => !hiddenMetrics.has(m[0]));
+
+  // Collect custom field metrics across all sessions
+  const customFieldKeys = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    for (const r of resolved) {
+      if (!r.stats.fieldStats) continue;
+      for (const [key, fs] of Object.entries(r.stats.fieldStats)) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(fs);
+        }
+      }
+    }
+    return result;
+  }, [resolved]);
+
+  // Build unified metrics list: built-in + custom field metrics
+  const metrics = useMemo(() => {
+    const rows = builtInMetrics.map((m) => ({ label: m[0], getValue: (r) => r.stats[m[1]], decimals: m[2] }));
+    for (const fs of customFieldKeys) {
+      const fKey = findFieldKeyFromResolved(resolved, fs.label);
+      if (fs.type === "number") {
+        rows.push({ label: `Mean ${fs.label}`, getValue: (r) => r.stats.fieldStats?.[fKey]?.mean ?? null, decimals: 1 });
+        rows.push({ label: `SD ${fs.label}`, getValue: (r) => r.stats.fieldStats?.[fKey]?.sd ?? null, decimals: 1 });
+      }
+      if (fs.type === "yesno") {
+        rows.push({ label: `${fs.label} %`, getValue: (r) => r.stats.fieldStats?.[fKey]?.pct ?? null, decimals: 0 });
+      }
+    }
+    return rows;
+  }, [builtInMetrics, customFieldKeys, resolved]);
+
+  const visibleMetrics = metrics.filter((m) => !hiddenMetrics.has(m.label));
 
   return (
     <>
@@ -488,14 +534,14 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
       {editMode && (
         <div className="flex gap-1 flex-wrap mb-3">
           {metrics.map((m) => (
-            <button key={m[0]} onClick={() => onToggleMetric(m[0])}
+            <button key={m.label} onClick={() => onToggleMetric(m.label)}
               className={cn(
                 "px-2 py-1 rounded text-[10px] border cursor-pointer transition-all",
-                hiddenMetrics.has(m[0])
+                hiddenMetrics.has(m.label)
                   ? "opacity-40 bg-secondary border-border text-muted-foreground"
                   : "bg-primary/10 border-primary/25 text-primary"
               )}>
-              {m[0]}
+              {m.label}
             </button>
           ))}
         </div>
@@ -514,22 +560,22 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
           </thead>
           <tbody>
             {visibleMetrics.map((m) => {
-              const values = resolved.map((r) => r.stats[m[1]]);
+              const values = resolved.map((r) => m.getValue(r));
               const valid = values.filter((v) => v != null && !isNaN(v));
-              const isLower = LOWER_BETTER.includes(m[0]);
+              const isLower = LOWER_BETTER.includes(m.label);
               const best = valid.length > 0 ? (isLower ? Math.min(...valid) : Math.max(...valid)) : null;
               return (
-                <tr key={m[0]} className="border-b border-border">
+                <tr key={m.label} className="border-b border-border">
                   <td className="text-muted-foreground px-2 py-1.5">
-                    <MetricTip label={m[0]}>{m[0]}</MetricTip>
+                    <MetricTip label={m.label}>{m.label}</MetricTip>
                   </td>
-                  {resolved.map((r, i) => {
-                    const val = r.stats[m[1]];
+                  {resolved.map((r) => {
+                    const val = m.getValue(r);
                     const isBest = val === best && valid.length > 1;
                     return (
                       <td key={r.session.id} className="text-right px-2 py-1.5 font-mono tabular-nums"
                         style={{ color: isBest ? r.color : "var(--color-foreground)", fontWeight: isBest ? 700 : 400 }}>
-                        {val != null ? val.toFixed(m[2]) : "\u2014"}
+                        {val != null ? Number(val).toFixed(m.decimals) : "\u2014"}
                         {isBest && " \u2726"}
                       </td>
                     );
@@ -671,32 +717,87 @@ function AttachmentsWidget({ resolved, mode, onError }) {
     db.getAttachments({ sessionIds }).then(setAttachments).catch(() => {});
   }, [sessionIds.join(",")]);
 
-  // Group by session + shot, with clear labeling
-  const groups = useMemo(() => {
-    const shotMap = {};
+  // Map shot_id -> session info
+  const shotMap = useMemo(() => {
+    const m = {};
     for (const r of resolved) {
       for (const s of r.shots) {
-        shotMap[s.id] = { serial: s.serial, shotNum: s.shotNum, sessionName: r.session.config.sessionName || "Unnamed", sessionColor: r.color };
+        m[s.id] = { serial: s.serial, shotNum: s.shotNum, sessionId: r.session.id, sessionName: r.session.config.sessionName || "Unnamed", sessionColor: r.color };
       }
     }
+    return m;
+  }, [resolved]);
+
+  // Group attachments by session
+  const sessionGroups = useMemo(() => {
+    const bySession = {};
+    for (const r of resolved) {
+      bySession[r.session.id] = { sessionId: r.session.id, name: r.session.config.sessionName || "Unnamed", color: r.color, items: [] };
+    }
+    for (const a of attachments) {
+      const shot = shotMap[a.shot_id];
+      const sid = shot?.sessionId;
+      if (sid && bySession[sid]) bySession[sid].items.push(a);
+    }
+    return Object.values(bySession);
+  }, [attachments, resolved, shotMap]);
+
+  // Group by shot for single mode (must be before conditional returns to satisfy hook rules)
+  const shotGroups = useMemo(() => {
     const grouped = {};
     for (const a of attachments) {
       const shot = shotMap[a.shot_id];
-      const key = shot ? `${shot.sessionName} — ${shot.serial}` : "Unlinked";
+      const key = shot ? `${shot.sessionName} \u2014 ${shot.serial}` : "Unlinked";
       if (!grouped[key]) grouped[key] = { label: key, color: shot?.sessionColor || "#888", items: [] };
       grouped[key].items.push(a);
     }
     return Object.values(grouped);
-  }, [attachments, resolved]);
+  }, [attachments, shotMap]);
 
   if (!attachments.length) {
     return <div className="text-muted-foreground text-sm py-4 text-center">No attachments</div>;
   }
 
+  // ─── Compare mode: one thumbnail per session ────────────────────────────────
+  if (mode === "multi") {
+    return (
+      <>
+        <div className="flex gap-4 flex-wrap justify-center">
+          {sessionGroups.map((sg) => {
+            if (!sg.items.length) return (
+              <div key={sg.sessionId} className="text-center">
+                <div className="w-24 h-24 rounded-lg border border-border bg-secondary flex items-center justify-center text-muted-foreground text-xs">No files</div>
+                <div className="text-[11px] font-semibold mt-1.5" style={{ color: sg.color }}>{sg.name}</div>
+              </div>
+            );
+            const thumb = sg.items.find((a) => a.file_type?.startsWith("image/")) || sg.items[0];
+            const isImage = thumb.file_type?.startsWith("image/");
+            const isVideo = thumb.file_type?.startsWith("video/");
+            return (
+              <button key={sg.sessionId}
+                onClick={() => setCarousel({ shotId: thumb.shot_id, serial: sg.name, atts: sg.items })}
+                className="text-center cursor-pointer bg-transparent border-none p-0 group">
+                <div className="w-24 h-24 rounded-lg overflow-hidden border-2 border-border group-hover:border-primary/50 transition-colors">
+                  {isImage && <img src={thumb.file_url} alt="" className="w-full h-full object-cover" />}
+                  {isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-lg">{"\u25b6"}</div>}
+                  {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-xs">PDF</div>}
+                </div>
+                <div className="text-[11px] font-semibold mt-1.5" style={{ color: sg.color }}>{sg.name}</div>
+                <div className="text-[10px] text-muted-foreground">{sg.items.length} file{sg.items.length !== 1 ? "s" : ""}</div>
+              </button>
+            );
+          })}
+        </div>
+        {carousel && <ShotCarousel attachments={carousel.atts} serial={carousel.serial} onClose={() => setCarousel(null)} />}
+      </>
+    );
+  }
+
+  // ─── Single mode: show all thumbnails grouped by shot ───────────────────────
   return (
     <>
       <div className="space-y-4">
-        {groups.map((group) => (
+        {shotGroups.map((group) => (
           <div key={group.label}>
             <div className="text-[11px] font-semibold mb-2" style={{ color: group.color }}>{group.label}</div>
             <div className="flex gap-2 flex-wrap">
@@ -708,7 +809,7 @@ function AttachmentsWidget({ resolved, mode, onError }) {
                     onClick={() => setCarousel({ shotId: a.shot_id, serial: group.label, atts: group.items })}
                     className="w-16 h-16 rounded-md overflow-hidden border border-border hover:border-primary/40 cursor-pointer bg-secondary transition-colors p-0">
                     {isImage && <img src={a.file_url} alt="" className="w-full h-full object-cover" />}
-                    {isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">\u25b6</div>}
+                    {isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">{"\u25b6"}</div>}
                     {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[9px]">PDF</div>}
                   </button>
                 );
