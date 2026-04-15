@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Plus, RotateCcw } from "lucide-react";
+import { Plus, RotateCcw, Download } from "lucide-react";
+import { toPng } from "html-to-image";
 import { cn } from "@/lib/utils";
 import * as d3 from "d3";
 import * as db from "../lib/db.js";
@@ -1173,6 +1174,8 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   const [layoutItems, setLayoutItems] = useState(null); // null = auto
   const [widgetOpts, setWidgetOpts] = useState({ showGrid: true });
   const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
+  const [analysisTitle, setAnalysisTitle] = useState("");
+  const exportRef = useRef();
 
   // ─── Derived data ──────────────────────────────────────────────────────────
   const resolved = useMemo(
@@ -1219,6 +1222,21 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   }, [activeLayout]);
   const handleResetLayout = useCallback(() => setLayoutItems(null), []);
 
+  const handleExportPng = useCallback(async () => {
+    const el = exportRef.current;
+    if (!el) return;
+    try {
+      const dataUrl = await toPng(el, { backgroundColor: "#f7f7fa", pixelRatio: 2 });
+      const a = document.createElement("a");
+      const name = analysisTitle || "analysis";
+      a.download = `${name.replace(/[^a-zA-Z0-9-_ ]/g, "")}-${Date.now()}.png`;
+      a.href = dataUrl;
+      a.click();
+    } catch (err) {
+      onError?.("Export failed: " + err.message);
+    }
+  }, [analysisTitle, onError]);
+
   const toggleOpt = useCallback((key) => {
     setWidgetOpts((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -1257,12 +1275,6 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
       return <AttainmentRateWidget resolved={resolved} mode={mode} fieldKey={def.fieldKey} fieldLabel={def.fieldLabel} />;
     }
 
-    // Dynamic distribution widgets
-    if (key.startsWith("distribution:")) {
-      const def = registry[key];
-      return <FieldDistributionWidget resolved={resolved} mode={mode} fieldKey={def.fieldKey} fieldLabel={def.fieldLabel} fieldUnit={def.fieldUnit} />;
-    }
-
     return <div className="text-muted-foreground text-sm">Unknown widget: {key}</div>;
   }, [resolved, mode, widgetOpts, toggleOpt, hiddenMetrics, toggleHiddenMetric, commonFields, allFields, registry, onError]);
 
@@ -1280,17 +1292,21 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   }
 
   return (
-    <div>
+    <div ref={exportRef}>
       {/* Session header */}
       <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
         <div className="px-6 py-4 flex items-center justify-between" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
-          <div>
-            <div className="text-lg font-bold text-foreground">
-              {mode === "multi" ? "Comparison" : primarySession.config.sessionName || "Unnamed Session"}
-            </div>
+          <div className="flex-1 min-w-0">
+            <input
+              type="text"
+              value={analysisTitle}
+              onChange={(e) => setAnalysisTitle(e.target.value)}
+              placeholder={mode === "multi" ? "Comparison" : primarySession.config.sessionName || "Unnamed Session"}
+              className="text-lg font-bold text-foreground bg-transparent border-none outline-none w-full placeholder:text-foreground/60"
+            />
             {cfgLine && <div className="text-xs text-muted-foreground mt-1">{cfgLine}</div>}
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0 ml-4">
             <div className="text-3xl font-black tabular-nums" style={{ color: G }}>
               {resolved.reduce((sum, r) => sum + r.shots.length, 0)}
             </div>
@@ -1313,6 +1329,10 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
         <button onClick={() => onExportCsv?.()}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
           Export CSV
+        </button>
+        <button onClick={handleExportPng}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
+          <Download size={11} /> Export PNG
         </button>
         <div className="flex-1" />
         <AddWidgetDropdown available={available} registry={registry} onAdd={handleAddWidget} />

@@ -115,20 +115,6 @@ export function buildWidgetRegistry(allFields, commonFields, mode) {
       };
     }
 
-    // Dynamic: one distribution widget per number field (excluding x, y)
-    if (f.type === "number" && !["x", "y"].includes(f.key)) {
-      const key = `distribution:${f.key}`;
-      registry[key] = {
-        key,
-        label: `${f.label} Distribution`,
-        category: f.key === "fps" ? "velocity" : "custom",
-        requires: (flds) => flds.some((ff) => ff.key === f.key && ff.type === "number"),
-        defaultSpan: "half",
-        fieldKey: f.key,
-        fieldLabel: f.label,
-        fieldUnit: f.unit || "",
-      };
-    }
   }
 
   return registry;
