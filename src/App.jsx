@@ -13,6 +13,7 @@ import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
 import { toPng } from 'html-to-image';
+import AnalysisPage from './analysis/AnalysisPage.jsx';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
@@ -1465,7 +1466,7 @@ function buildWidgets(sessionFields) {
 const DEF_LAYOUT = Object.keys(STATIC_WIDGETS).filter(k => STATIC_WIDGETS[k].default);
 const DEF_DISP = { showCep: false, showR90: false, showEllipse: false, showMpi: false, showGrid: true };
 const DEF_CMP_METRICS = ALL_METRICS.filter(m => m[3]).map(m => m[0]);
-const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, LIBRARY: 6, MATRIX: 7 };
+const P = { SETUP: 0, FIRE: 1, RESULTS: 2, HISTORY: 3, CMP: 4, LIBRARY: 6, MATRIX: 7, ANALYSIS: 8 };
 
 // ─── Shared layout helpers ────────────────────────────────────────────────────
 function SecLabel({ children, className = "" }) {
@@ -2277,7 +2278,7 @@ export default function App() {
   const finishSession = () => {
     if (!continuingSessionId) return; // Can't view results if session hasn't been saved yet
     setViewId(continuingSessionId);
-    setPhase(P.RESULTS);
+    setPhase(P.ANALYSIS);
   };
   const newSession = () => { setContinuingSessionId(null); setSaveStatus("saved"); setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
   const delSession = async id => {
@@ -2316,13 +2317,12 @@ export default function App() {
   const viewed = log.find(s => s.id === viewId);
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
-    { label: "Setup",   ph: P.SETUP,   onClick: newSession },
-    { label: "Fire",    ph: P.FIRE,    disabled: phase !== P.FIRE && !continuingSessionId, onClick: () => { if (continuingSessionId) setPhase(P.FIRE); } },
-    { label: "Results", ph: P.RESULTS, disabled: !viewId,        onClick: () => setPhase(P.RESULTS) },
-    { label: "History", ph: P.HISTORY, onClick: () => setPhase(P.HISTORY) },
-    { label: "Compare", ph: P.CMP,     disabled: log.length < 2, onClick: () => { setCmpSlots([]); setPhase(P.CMP); } },
-    { label: "Matrix",  ph: P.MATRIX,  disabled: log.length < 2, onClick: () => { setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setPhase(P.MATRIX); } },
-    { label: "Library", ph: P.LIBRARY, onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
+    { label: "Setup",    ph: P.SETUP,    onClick: newSession },
+    { label: "Fire",     ph: P.FIRE,     disabled: phase !== P.FIRE && !continuingSessionId, onClick: () => { if (continuingSessionId) setPhase(P.FIRE); } },
+    { label: "Analysis", ph: P.ANALYSIS, disabled: !viewId && log.length === 0, onClick: () => setPhase(P.ANALYSIS) },
+    { label: "History",  ph: P.HISTORY,  onClick: () => setPhase(P.HISTORY) },
+    { label: "Matrix",   ph: P.MATRIX,   disabled: log.length < 2, onClick: () => { setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setPhase(P.MATRIX); } },
+    { label: "Library",  ph: P.LIBRARY,  onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
 
 
@@ -2715,7 +2715,25 @@ export default function App() {
     </AppShell>
   );
 
-  // ─── RESULTS ─────────────────────────────────────────────────────────────────
+  // ─── ANALYSIS (unified Results + Compare) ───────────────────────────────────
+  if (phase === P.ANALYSIS) {
+    return (
+      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+        <AnalysisPage
+          log={log}
+          vars={vars}
+          fields={fields}
+          viewId={viewId}
+          savedComparisons={savedComparisons}
+          onContinueSession={continueSession}
+          onError={setDbError}
+          onExportCsv={() => exportMasterCsv(log, vars)}
+        />
+      </AppShell>
+    );
+  }
+
+  // ─── RESULTS (legacy — redirects to Analysis) ──────────────────────────────
   if (phase === P.RESULTS && viewed) {
     const s = viewed;
     const sf = s.config.fields || fields;
@@ -2726,7 +2744,7 @@ export default function App() {
     const vs = s.shots.filter(sh => {
       const d = sh.data || sh;
       const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
-      return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+      return reqNum.every(k => !(k in d) || (d[k] !== null && d[k] !== undefined && !isNaN(d[k])));
     });
     const st = s.stats;
     const cfgLine = vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ");
@@ -2736,7 +2754,7 @@ export default function App() {
         <div className="flex justify-end items-center mb-6 flex-wrap gap-2">
           <Btn v="secondary" onClick={() => continueSession(s.id)}>Edit</Btn>
           {log.length >= 2 && (
-            <Btn v="secondary" onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: log.find(x => x.id !== s.id)?.id, color: PALETTE[1] }]); setPhase(P.CMP); }}>Compare</Btn>
+            <Btn v="secondary" onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }}>Compare</Btn>
           )}
           <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
           <Btn v="secondary" onClick={() => { setLibraryFilterSessionIds([s.id]); setPhase(P.LIBRARY); }}>Library →</Btn>
@@ -2809,7 +2827,7 @@ export default function App() {
       const reqNum = sf.filter(f => f.required && f.type === "number").map(f => f.key);
       const vs = s.shots.filter(sh => {
         const d = sh.data || sh;
-        return reqNum.every(k => d[k] !== null && d[k] !== undefined && !isNaN(d[k]));
+        return reqNum.every(k => !(k in d) || (d[k] !== null && d[k] !== undefined && !isNaN(d[k])));
       });
       return { ...sl, session: s, shots: vs, stats: s.stats, fields: sf };
     }).filter(Boolean);
@@ -3585,7 +3603,7 @@ export default function App() {
                   {/* View Session button */}
                   {isSingle && (
                     <div className="mt-4">
-                      <Btn v="secondary" onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }}>View Session</Btn>
+                      <Btn v="secondary" onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }}>View Session</Btn>
                     </div>
                   )}
                 </CardSection>
@@ -3711,9 +3729,9 @@ export default function App() {
                     </div>
                     {/* Actions */}
                     <div className="flex items-center shrink-0 border-l border-border h-full">
-                      <button onClick={() => { setViewId(s.id); setPhase(P.RESULTS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
+                      <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
                       <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
-                      <button onClick={() => { setCmpSlots([{ id: s.id, color: PALETTE[0] }, { id: null, color: PALETTE[1] }]); setPhase(P.CMP); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
+                      <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
                       <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
                     </div>
                   </div>
