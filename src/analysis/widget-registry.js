@@ -69,6 +69,37 @@ export function buildWidgetRegistry(allFields, commonFields, mode) {
     defaultSpan: "half",
   };
 
+  // ─── Dynamic: single-metric ranking widgets ─────────────────────────────────
+  const rankMetrics = [];
+  const hasXY = fields.some((f) => f.key === "x") && fields.some((f) => f.key === "y");
+  const hasFps = fields.some((f) => f.key === "fps");
+  if (hasXY) {
+    rankMetrics.push({ key: "cep", label: "CEP (50%)", dir: "lower" });
+    rankMetrics.push({ key: "r90", label: "R90", dir: "lower" });
+    rankMetrics.push({ key: "es", label: "Ext. Spread", dir: "lower" });
+  }
+  if (hasFps) {
+    rankMetrics.push({ key: "meanV", label: "Mean FPS", dir: "higher" });
+    rankMetrics.push({ key: "sdV", label: "SD FPS", dir: "lower" });
+  }
+  for (const f of fields) {
+    if (f.type === "yesno") rankMetrics.push({ key: `yesno:${f.key}`, label: `${f.label} %`, dir: "higher" });
+    if (f.type === "number" && !["x", "y", "fps"].includes(f.key)) rankMetrics.push({ key: `fieldMean:${f.key}`, label: `Mean ${f.label}`, dir: "higher" });
+  }
+  for (const m of rankMetrics) {
+    const wKey = `singleRanking:${m.key}`;
+    registry[wKey] = {
+      key: wKey,
+      label: `${m.label} Ranking`,
+      category: "general",
+      requires: () => true,
+      defaultSpan: "half",
+      metricKey: m.key,
+      metricLabel: m.label,
+      direction: m.dir,
+    };
+  }
+
   // ─── Dynamic: one attainment widget per yes/no field ─────────────────────────
   for (const f of fields) {
     if (f.type === "yesno") {

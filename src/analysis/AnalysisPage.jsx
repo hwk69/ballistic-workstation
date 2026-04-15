@@ -66,7 +66,16 @@ function Toggle({ label, on, onToggle, color }) {
 }
 
 function MetricTip({ label, children }) {
-  const info = METRIC_INFO[label];
+  let info = METRIC_INFO[label];
+  // Auto-generate tooltip for custom field metrics (Mean X, SD X, etc.)
+  if (!info) {
+    const meanMatch = label.match(/^Mean (.+)$/);
+    const sdMatch = label.match(/^SD (.+)$/);
+    const esMatch = label.match(/^ES (.+)$/);
+    if (meanMatch) info = { desc: `Average value of ${meanMatch[1]} across all shots.`, formula: `Sum(values) / count` };
+    else if (sdMatch) info = { desc: `Standard deviation of ${sdMatch[1]}. Measures consistency — lower means tighter grouping.`, formula: `√( Σ(val − mean)² / (n − 1) )` };
+    else if (esMatch) info = { desc: `Extreme spread of ${esMatch[1]}. Difference between highest and lowest value.`, formula: `max(values) − min(values)` };
+  }
   const [tip, setTip] = useState(null);
   if (!info) return <>{children}</>;
   return (
@@ -289,13 +298,15 @@ function DispersionMulti({ sessions, size = 440, opts = {} }) {
   );
 }
 
-function DonutChart({ yesCount, noCount, total, label, width = 360, color = G }) {
+function DonutChart({ yesCount, noCount, total, label, width = 360, height = 200, color = G }) {
   const ref = useRef();
   useEffect(() => {
     if (!ref.current || total === 0) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
-    const size = Math.min(width, 180), radius = size / 2 - 10, innerRadius = radius * 0.55;
-    const gg = svg.append("g").attr("transform", `translate(${width / 2},${90})`);
+    const chartArea = height - 30; // reserve space for legend
+    const size = Math.min(width, chartArea * 0.85), radius = size / 2 - 10, innerRadius = radius * 0.55;
+    const cy = chartArea / 2;
+    const gg = svg.append("g").attr("transform", `translate(${width / 2},${cy})`);
     const data = [
       { label: "Yes", value: yesCount, color: color },
       { label: "No", value: noCount, color: "rgba(255,255,255,0.15)" },
@@ -304,16 +315,16 @@ function DonutChart({ yesCount, noCount, total, label, width = 360, color = G })
     const arc = d3.arc().innerRadius(innerRadius).outerRadius(radius);
     gg.selectAll("path").data(pie(data)).join("path").attr("d", arc).attr("fill", (d) => d.data.color).attr("stroke", "rgba(0,0,0,0.3)").attr("stroke-width", 1);
     const pct = total > 0 ? Math.round((yesCount / total) * 100) : 0;
-    gg.append("text").attr("text-anchor", "middle").attr("dy", "-0.1em").attr("fill", "#fff").attr("font-size", 22).attr("font-weight", "700").text(`${pct}%`);
+    gg.append("text").attr("text-anchor", "middle").attr("dy", "-0.1em").attr("fill", "#fff").attr("font-size", Math.min(22, radius * 0.5)).attr("font-weight", "700").text(`${pct}%`);
     gg.append("text").attr("text-anchor", "middle").attr("dy", "1.3em").attr("fill", TICK_CLR).attr("font-size", 10).text("Yes");
-    const legend = svg.append("g").attr("transform", `translate(${width / 2 - 60},${175})`);
+    const legend = svg.append("g").attr("transform", `translate(${width / 2 - 60},${height - 18})`);
     [{ label: `Yes: ${yesCount}`, color }, { label: `No: ${noCount}`, color: "rgba(255,255,255,0.15)" }].forEach((item, i) => {
       const g = legend.append("g").attr("transform", `translate(${i * 80},0)`);
       g.append("rect").attr("width", 10).attr("height", 10).attr("rx", 2).attr("fill", item.color);
       g.append("text").attr("x", 14).attr("y", 9).attr("fill", TICK_CLR).attr("font-size", 10).text(item.label);
     });
-  }, [yesCount, noCount, total, width, color]);
-  return <svg ref={ref} width={width} height={200} style={{ background: CHART_BG, borderRadius: 10 }} />;
+  }, [yesCount, noCount, total, width, height, color]);
+  return <svg ref={ref} width={width} height={height} style={{ background: CHART_BG, borderRadius: 10 }} />;
 }
 
 function VelHist({ shots, width = 360, color = G }) {
@@ -538,25 +549,32 @@ function AttainmentRateWidget({ resolved, mode, fieldKey, fieldLabel }) {
     const fs = stats.fieldStats?.[fieldKey];
     if (!fs || fs.type !== "yesno") return <div className="text-muted-foreground text-sm">No data</div>;
     return (
-      <AutoSizeChart render={(w) => (
-        <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={w - 8} color={color || G} />
+      <AutoSizeChart render={(w, h) => (
+        <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={w - 8} height={Math.max(h, 180)} color={color || G} />
       )} />
     );
   }
-  // Multi: side-by-side donuts
+  // Multi: responsive side-by-side donuts
+  const cols = Math.min(resolved.length, 3);
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(resolved.length, 3)}, 1fr)` }}>
-      {resolved.map((r) => {
-        const fs = r.stats.fieldStats?.[fieldKey];
-        if (!fs || fs.type !== "yesno") return null;
-        return (
-          <div key={r.session.id} className="text-center">
-            <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={200} color={r.color} />
-            <div className="text-xs mt-1" style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</div>
-          </div>
-        );
-      })}
-    </div>
+    <AutoSizeChart render={(w, h) => {
+      const colW = Math.floor((w - (cols - 1) * 16) / cols);
+      const chartH = Math.max(h - 24, 160);
+      return (
+        <div className="flex gap-4 justify-center">
+          {resolved.map((r) => {
+            const fs = r.stats.fieldStats?.[fieldKey];
+            if (!fs || fs.type !== "yesno") return null;
+            return (
+              <div key={r.session.id} className="text-center">
+                <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={colW} height={chartH} color={r.color} />
+                <div className="text-xs mt-1" style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }} />
   );
 }
 
@@ -682,13 +700,13 @@ function AttachmentsWidget({ resolved, mode, onError }) {
             <div className="text-[11px] font-semibold mb-2" style={{ color: group.color }}>{group.label}</div>
             <div className="flex gap-2 flex-wrap">
               {group.items.map((a) => {
-                const isImage = a.content_type?.startsWith("image/");
-                const isVideo = a.content_type?.startsWith("video/");
+                const isImage = a.file_type?.startsWith("image/");
+                const isVideo = a.file_type?.startsWith("video/");
                 return (
                   <button key={a.id}
                     onClick={() => setCarousel({ shotId: a.shot_id, serial: group.label, atts: group.items })}
                     className="w-16 h-16 rounded-md overflow-hidden border border-border hover:border-primary/40 cursor-pointer bg-secondary transition-colors p-0">
-                    {isImage && <img src={a.url} alt="" className="w-full h-full object-cover" />}
+                    {isImage && <img src={a.file_url} alt="" className="w-full h-full object-cover" />}
                     {isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">\u25b6</div>}
                     {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[9px]">PDF</div>}
                   </button>
@@ -700,6 +718,42 @@ function AttachmentsWidget({ resolved, mode, onError }) {
       </div>
       {carousel && <ShotCarousel attachments={carousel.atts} serial={carousel.serial} onClose={() => setCarousel(null)} />}
     </>
+  );
+}
+
+function ScoreTip({ enabledConfig, children }) {
+  const [tip, setTip] = useState(null);
+  return (
+    <span className="cursor-help"
+      onMouseEnter={(ev) => setTip({ x: ev.clientX, y: ev.clientY })}
+      onMouseMove={(ev) => setTip({ x: ev.clientX, y: ev.clientY })}
+      onMouseLeave={() => setTip(null)}>
+      {children}
+      {tip && (
+        <div style={{
+          position: "fixed", left: tip.x + 14, top: tip.y - 10,
+          pointerEvents: "none", zIndex: 300,
+          background: "#111118", border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 2, padding: "10px 13px", fontSize: 11, lineHeight: 1.7,
+          color: "#f0f0f8", maxWidth: 300,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+        }}>
+          <div style={{ color: G, fontWeight: 600, marginBottom: 4 }}>Composite Score</div>
+          <div style={{ color: "#6b6b7e", marginBottom: 8, whiteSpace: "normal" }}>
+            Each metric is normalized 0–1 across all sessions (min-max scaling), then averaged. Direction (higher/lower = better) flips the normalization. Score of 1.00 = best possible across all metrics.
+          </div>
+          <div style={{
+            borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 7,
+            fontFamily: "monospace", color: "rgba(255,255,255,0.5)", fontSize: 10, whiteSpace: "pre-wrap",
+          }}>
+            {enabledConfig.map((c) =>
+              `${c.label}: (val − min) / (max − min)${c.direction === "lower" ? "" : " → inverted"}`
+            ).join("\n")}
+            {"\n"}Score = mean of all normalized values
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -848,7 +902,9 @@ function CustomRankingsWidget({ resolved, mode }) {
                     {c.label} {c.direction === "lower" ? "\u2193" : "\u2191"}
                   </th>
                 ))}
-                <th className="text-right text-muted-foreground text-[10px] uppercase tracking-wide px-2 py-1.5">Score</th>
+                <th className="text-right text-muted-foreground text-[10px] uppercase tracking-wide px-2 py-1.5">
+                  <ScoreTip enabledConfig={enabledConfig}>Score</ScoreTip>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -888,27 +944,64 @@ function CustomRankingsWidget({ resolved, mode }) {
   );
 }
 
-function CorrelationScatterWidget({ resolved, mode, allFields }) {
-  const numberFields = useMemo(() => allFields.filter((f) => f.type === "number"), [allFields]);
-  const [xField, setXField] = useState(numberFields[0]?.key || "");
-  const [yField, setYField] = useState(numberFields[1]?.key || numberFields[0]?.key || "");
-  const [showTrend, setShowTrend] = useState(true);
+function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction }) {
+  const getValue = (r) => {
+    if (metricKey.startsWith("yesno:")) return r.stats.fieldStats?.[metricKey.slice(6)]?.pct ?? null;
+    if (metricKey.startsWith("fieldMean:")) return r.stats.fieldStats?.[metricKey.slice(10)]?.mean ?? null;
+    return r.stats[metricKey] ?? null;
+  };
+
+  const ranked = useMemo(() => {
+    const items = resolved.map((r) => ({ ...r, value: getValue(r) })).filter((r) => r.value != null);
+    items.sort((a, b) => direction === "lower" ? a.value - b.value : b.value - a.value);
+    return items;
+  }, [resolved, metricKey, direction]);
+
+  if (ranked.length === 0) return <div className="text-muted-foreground text-sm py-4 text-center">No data</div>;
+
+  const best = ranked[0]?.value;
+  const worst = ranked[ranked.length - 1]?.value;
+  const range = best !== worst ? Math.abs(best - worst) : 1;
+
+  return (
+    <div className="space-y-1.5">
+      {ranked.map((r, i) => {
+        const pct = range > 0 ? Math.abs(r.value - worst) / range : 1;
+        const barPct = direction === "lower" ? pct : 1 - (Math.abs(r.value - best) / range);
+        return (
+          <div key={r.session.id} className="flex items-center gap-2">
+            <span className="text-xs font-bold w-5 text-right" style={{ color: i === 0 ? r.color : "var(--color-muted-foreground)" }}>{i + 1}</span>
+            <div className="flex-1 relative h-7 rounded-md overflow-hidden bg-secondary">
+              <div className="absolute inset-y-0 left-0 rounded-md transition-all duration-300" style={{ width: `${Math.max(barPct * 100, 8)}%`, background: r.color + "30", borderRight: `2px solid ${r.color}` }} />
+              <div className="absolute inset-0 flex items-center justify-between px-2.5">
+                <span className="text-[11px] font-semibold" style={{ color: r.color }}>
+                  <span className="size-2 rounded-full inline-block mr-1.5" style={{ background: r.color }} />
+                  {r.session.config.sessionName || "Unnamed"}
+                </span>
+                <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: i === 0 ? r.color : "var(--color-foreground)" }}>
+                  {Number.isInteger(r.value) ? r.value : r.value.toFixed(2)}
+                  {i === 0 && " \u2726"}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="text-[9px] text-muted-foreground/50 text-right mt-1">
+        {direction === "lower" ? "\u2193 Lower" : "\u2191 Higher"} is better
+      </div>
+    </div>
+  );
+}
+
+function CorrelationScatterInner({ data, xField, yField, showTrend, allFields, width, height }) {
   const ref = useRef();
   const [tip, setTip] = useState(null);
 
-  const data = useMemo(() =>
-    resolved.flatMap((r) =>
-      r.shots.map((s) => {
-        const d = s.data || s;
-        return { x: parseFloat(d[xField]), y: parseFloat(d[yField]), color: r.color, serial: s.serial, sessionName: r.session.config.sessionName || "Unnamed" };
-      }).filter((d) => !isNaN(d.x) && !isNaN(d.y))
-    ), [resolved, xField, yField]);
-
-  const width = 360;
   useEffect(() => {
     if (!ref.current || data.length < 2) return;
     const svg = d3.select(ref.current); svg.selectAll("*").remove();
-    const m = { t: 15, r: 15, b: 34, l: 42 }, w = width - m.l - m.r, h = 200 - m.t - m.b;
+    const m = { t: 15, r: 15, b: 34, l: 42 }, w = width - m.l - m.r, h = height - m.t - m.b;
     const xScale = d3.scaleLinear().domain(d3.extent(data, (d) => d.x)).nice().range([0, w]);
     const yScale = d3.scaleLinear().domain(d3.extent(data, (d) => d.y)).nice().range([h, 0]);
     const gg = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
@@ -938,8 +1031,30 @@ function CorrelationScatterWidget({ resolved, mode, allFields }) {
     }
     const xLabel = allFields.find((f) => f.key === xField)?.label || xField;
     const yLabel = allFields.find((f) => f.key === yField)?.label || yField;
-    svg.append("text").attr("x", width / 2).attr("y", 197).attr("text-anchor", "middle").attr("fill", TICK_CLR).attr("font-size", 10).text(`${xLabel} vs ${yLabel}`);
-  }, [data, width, showTrend, xField, yField, allFields]);
+    svg.append("text").attr("x", width / 2).attr("y", height - 3).attr("text-anchor", "middle").attr("fill", TICK_CLR).attr("font-size", 10).text(`${xLabel} vs ${yLabel}`);
+  }, [data, width, height, showTrend, xField, yField, allFields]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <svg ref={ref} width={width} height={height} style={{ background: CHART_BG, borderRadius: 10 }} />
+      <ChartTooltip tip={tip} />
+    </div>
+  );
+}
+
+function CorrelationScatterWidget({ resolved, mode, allFields }) {
+  const numberFields = useMemo(() => allFields.filter((f) => f.type === "number"), [allFields]);
+  const [xField, setXField] = useState(numberFields[0]?.key || "");
+  const [yField, setYField] = useState(numberFields[1]?.key || numberFields[0]?.key || "");
+  const [showTrend, setShowTrend] = useState(true);
+
+  const data = useMemo(() =>
+    resolved.flatMap((r) =>
+      r.shots.map((s) => {
+        const d = s.data || s;
+        return { x: parseFloat(d[xField]), y: parseFloat(d[yField]), color: r.color, serial: s.serial, sessionName: r.session.config.sessionName || "Unnamed" };
+      }).filter((d) => !isNaN(d.x) && !isNaN(d.y))
+    ), [resolved, xField, yField]);
 
   return (
     <div>
@@ -955,13 +1070,13 @@ function CorrelationScatterWidget({ resolved, mode, allFields }) {
         </select>
         <Toggle label="Trend" on={showTrend} onToggle={() => setShowTrend((s) => !s)} />
       </div>
-      <div style={{ position: "relative", display: "inline-block" }}>
-        <AutoSizeChart render={(w) => {
-          // Use a fixed-width approach for now
-          return <svg ref={ref} width={w - 8} height={200} style={{ background: CHART_BG, borderRadius: 10 }} />;
-        }} />
-        <ChartTooltip tip={tip} />
-      </div>
+      {data.length < 2 ? (
+        <div className="text-muted-foreground text-sm py-6 text-center">Need at least 2 data points</div>
+      ) : (
+        <AutoSizeChart render={(w, h) => (
+          <CorrelationScatterInner data={data} xField={xField} yField={yField} showTrend={showTrend} allFields={allFields} width={w - 8} height={Math.max(h, 200)} />
+        )} />
+      )}
     </div>
   );
 }
@@ -1129,6 +1244,12 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     if (key === "attachments") return <AttachmentsWidget resolved={resolved} mode={mode} onError={onError} />;
     if (key === "customRankings") return <CustomRankingsWidget resolved={resolved} mode={mode} />;
     if (key === "correlationScatter") return <CorrelationScatterWidget resolved={resolved} mode={mode} allFields={allFields} />;
+
+    // Dynamic single-metric ranking widgets
+    if (key.startsWith("singleRanking:")) {
+      const def = registry[key];
+      return <SingleMetricRankingWidget resolved={resolved} metricKey={def.metricKey} metricLabel={def.metricLabel} direction={def.direction} />;
+    }
 
     // Dynamic attainment widgets
     if (key.startsWith("attainment:")) {
