@@ -28,7 +28,7 @@ function AutoSizeChart({ render: renderFn }) {
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
-  return <div ref={ref} className="w-full h-full min-h-[160px]">{dims ? renderFn(dims.w, dims.h) : null}</div>;
+  return <div ref={ref} className="w-full min-h-[160px]">{dims ? renderFn(dims.w, dims.h) : null}</div>;
 }
 
 function ChartTooltip({ tip }) {
@@ -562,7 +562,7 @@ function AttainmentRateWidget({ resolved, mode, fieldKey, fieldLabel }) {
     <AutoSizeChart render={(w) => {
       const colW = Math.floor((w - (cols - 1) * 16) / cols);
       return (
-        <div className="flex gap-4 justify-center">
+        <div className="flex gap-4 justify-center flex-wrap overflow-hidden">
           {resolved.map((r) => {
             const fs = r.stats.fieldStats?.[fieldKey];
             if (!fs || fs.type !== "yesno") return null;

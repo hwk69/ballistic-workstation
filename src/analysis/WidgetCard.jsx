@@ -54,7 +54,7 @@ export default function WidgetCard({ id, label, span, onRemove, onToggleSpan, ch
       </div>
 
       {/* Content */}
-      <div className="p-4 flex-1 min-h-0">
+      <div className="p-4 flex-1 min-h-0 overflow-hidden">
         {children}
       </div>
     </div>
