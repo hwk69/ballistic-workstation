@@ -1,14 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx shadcn@latest add \"https://21st.dev/r/erikx/mini-navbar\")",
-      "Bash(npx shadcn@latest add \"https://21st.dev/r/beratberkayg/stat-card\")",
-      "Bash(npx shadcn@latest add \"https://21st.dev/r/serafimcloud/badge-delta\")",
-      "WebFetch(domain:21st.dev)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
       "Bash(git *)",
-      "Bash(npm run *)",
+      "Bash(npm *)",
       "Bash(npx *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(vite *)",
+      "Bash(ls *)",
+      "Bash(cd *)",
+      "Bash(mkdir *)",
+      "Bash(cat *)"
     ]
   },
   "hooks": {
