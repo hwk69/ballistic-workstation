@@ -31,7 +31,7 @@ export default function WidgetCard({ id, label, span, onRemove, onToggleSpan, ch
         </button>
 
         {/* Widget title */}
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground flex-1">
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-foreground flex-1 text-center">
           {label}
         </span>
 

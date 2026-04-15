@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Plus, RotateCcw, Download } from "lucide-react";
+import { Plus, RotateCcw, Download, Save, FolderOpen, Trash2 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { cn } from "@/lib/utils";
 import * as d3 from "d3";
@@ -382,7 +382,7 @@ function DispersionWidget({ resolved, mode, opts, toggleOpt }) {
             <Toggle key={k} label={l} on={opts[k]} onToggle={() => toggleOpt(k)} color={c} />
           ))}
         </div>
-        <AutoSizeChart render={(w, h) => <DispersionChart shots={shots} stats={stats} size={Math.min(w, h) - 12} opts={opts} color={color || G} />} />
+        <AutoSizeChart render={(w) => <DispersionChart shots={shots} stats={stats} size={Math.min(w, 420) - 12} opts={opts} color={color || G} />} />
       </>
     );
   }
@@ -395,7 +395,7 @@ function DispersionWidget({ resolved, mode, opts, toggleOpt }) {
           <Toggle key={k} label={l} on={opts[k]} onToggle={() => toggleOpt(k)} color={c} />
         ))}
       </div>
-      <AutoSizeChart render={(w, h) => <DispersionMulti sessions={sessions} size={Math.min(w, h) - 12} opts={opts} />} />
+      <AutoSizeChart render={(w) => <DispersionMulti sessions={sessions} size={Math.min(w, 420) - 12} opts={opts} />} />
       <div className="flex gap-3 mt-2 flex-wrap">
         {resolved.map((r) => (
           <span key={r.session.id} className="inline-flex items-center gap-1.5 text-xs">
@@ -1278,6 +1278,64 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   const [analysisTitle, setAnalysisTitle] = useState("");
   const exportRef = useRef();
 
+  // ─── Saved analyses ───────────────────────────────────────────────────────
+  const [savedAnalyses, setSavedAnalyses] = useState([]);
+  const [loadMenuOpen, setLoadMenuOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved"
+  const loadRef = useRef();
+
+  // Fetch saved analyses on mount
+  useEffect(() => {
+    db.getComparisons().then(setSavedAnalyses).catch(() => {});
+  }, []);
+
+  // Close load menu on outside click
+  useEffect(() => {
+    if (!loadMenuOpen) return;
+    const handler = (e) => { if (loadRef.current && !loadRef.current.contains(e.target)) setLoadMenuOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [loadMenuOpen]);
+
+  const handleSaveAnalysis = useCallback(async () => {
+    const title = analysisTitle || (mode === "multi" ? "Comparison" : resolved[0]?.session?.config?.sessionName || "Analysis");
+    setSaveStatus("saving");
+    try {
+      const saved = await db.saveComparison({
+        title,
+        slots,
+        widgets: layoutItems || [],
+        metrics: [...hiddenMetrics],
+        by: widgetOpts,
+      });
+      setSavedAnalyses((prev) => [saved, ...prev]);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      onError?.("Save failed: " + err.message);
+      setSaveStatus(null);
+    }
+  }, [analysisTitle, slots, layoutItems, hiddenMetrics, widgetOpts, mode, resolved, onError]);
+
+  const handleLoadAnalysis = useCallback((analysis) => {
+    setLoadMenuOpen(false);
+    if (analysis.slots) setSlots(analysis.slots);
+    if (analysis.title) setAnalysisTitle(analysis.title);
+    if (analysis.widgets?.length) setLayoutItems(analysis.widgets);
+    if (analysis.by) setWidgetOpts(analysis.by);
+    if (analysis.metrics?.length) setHiddenMetrics(new Set(analysis.metrics));
+  }, []);
+
+  const handleDeleteAnalysis = useCallback(async (id, e) => {
+    e.stopPropagation();
+    try {
+      await db.deleteComparison(id);
+      setSavedAnalyses((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      onError?.("Delete failed: " + err.message);
+    }
+  }, [onError]);
+
   // ─── Derived data ──────────────────────────────────────────────────────────
   const resolved = useMemo(
     () => resolveSlots(slots, log, fields, calcStats),
@@ -1318,7 +1376,7 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   const handleAddWidget = useCallback((key, defaultSpan) => {
     setLayoutItems((prev) => {
       const items = prev || [...activeLayout];
-      return [...items, { key, span: defaultSpan || "half" }];
+      return [{ key, span: defaultSpan || "half" }, ...items];
     });
   }, [activeLayout]);
   const handleResetLayout = useCallback(() => setLayoutItems(null), []);
@@ -1435,6 +1493,36 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
           <Download size={11} /> Export PNG
         </button>
+        <button onClick={handleSaveAnalysis} disabled={saveStatus === "saving"}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-medium cursor-pointer hover:bg-primary/20 transition-colors disabled:opacity-50">
+          <Save size={11} /> {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved!" : "Save Analysis"}
+        </button>
+        <div className="relative" ref={loadRef}>
+          <button onClick={() => setLoadMenuOpen((o) => !o)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
+            <FolderOpen size={11} /> Load
+          </button>
+          {loadMenuOpen && (
+            <div className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-2 min-w-[220px] max-h-[280px] overflow-auto">
+              {savedAnalyses.length === 0 ? (
+                <div className="text-muted-foreground text-xs py-2 px-3 text-center">No saved analyses</div>
+              ) : savedAnalyses.map((a) => (
+                <div key={a.id}
+                  onClick={() => handleLoadAnalysis(a)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-accent/40 transition-colors group">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-foreground truncate">{a.title || a.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{a.slots?.length || 0} session{(a.slots?.length || 0) !== 1 ? "s" : ""}</div>
+                  </div>
+                  <button onClick={(e) => handleDeleteAnalysis(a.id, e)}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none p-0.5 transition-all">
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex-1" />
         <AddWidgetDropdown available={available} registry={registry} onAdd={handleAddWidget} />
         {layoutItems && (
