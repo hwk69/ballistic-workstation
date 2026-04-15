@@ -544,22 +544,22 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
 }
 
 function AttainmentRateWidget({ resolved, mode, fieldKey, fieldLabel }) {
+  const DONUT_H = 220;
   if (mode === "single") {
     const { stats, color } = resolved[0];
     const fs = stats.fieldStats?.[fieldKey];
     if (!fs || fs.type !== "yesno") return <div className="text-muted-foreground text-sm">No data</div>;
     return (
-      <AutoSizeChart render={(w, h) => (
-        <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={w - 8} height={Math.max(h, 180)} color={color || G} />
+      <AutoSizeChart render={(w) => (
+        <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={w - 8} height={DONUT_H} color={color || G} />
       )} />
     );
   }
   // Multi: responsive side-by-side donuts
   const cols = Math.min(resolved.length, 3);
   return (
-    <AutoSizeChart render={(w, h) => {
+    <AutoSizeChart render={(w) => {
       const colW = Math.floor((w - (cols - 1) * 16) / cols);
-      const chartH = Math.max(h - 24, 160);
       return (
         <div className="flex gap-4 justify-center">
           {resolved.map((r) => {
@@ -567,7 +567,7 @@ function AttainmentRateWidget({ resolved, mode, fieldKey, fieldLabel }) {
             if (!fs || fs.type !== "yesno") return null;
             return (
               <div key={r.session.id} className="text-center">
-                <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={colW} height={chartH} color={r.color} />
+                <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={colW} height={DONUT_H} color={r.color} />
                 <div className="text-xs mt-1" style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</div>
               </div>
             );
