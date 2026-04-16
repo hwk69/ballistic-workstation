@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useScroll } from "@/components/use-scroll";
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
-import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown, ChevronUp, Save, FolderOpen, Download, Trash2 } from 'lucide-react';
+import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown, ChevronUp, Save, FolderOpen, Download, Trash2, RotateCcw } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget, ShotCarousel } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
@@ -1934,6 +1934,7 @@ export default function App() {
   const [matrixLoadMenuOpen, setMatrixLoadMenuOpen] = useState(false);
   const matrixExportRef = useRef();
   const matrixLoadRef = useRef();
+  const originalMatrixShared = useRef(null); // stores original shared matrix state for viewer reset
 
   // Close matrix load menu on outside click
   useEffect(() => {
@@ -2067,6 +2068,13 @@ export default function App() {
             if (compData.by?.rowVar) setMatrixRowVar(compData.by.rowVar);
             if (compData.by?.colVar) setMatrixColVar(compData.by.colVar);
             if (compData.by?.metric) setMatrixMetric(compData.by.metric);
+            originalMatrixShared.current = {
+              slots: compData.slots || [],
+              title: comp.title || "",
+              rowVar: compData.by?.rowVar || null,
+              colVar: compData.by?.colVar || null,
+              metric: compData.by?.metric || null,
+            };
             setPhase(P.MATRIX);
           } else {
             // Analysis share — store full comparison data for AnalysisPage
@@ -3692,7 +3700,7 @@ export default function App() {
         {/* Session picker bar */}
         <div className="mb-3 border border-border rounded-lg bg-secondary/40 px-4 py-2.5">
           {matrixPickerOpen
-            ? <SessionPicker slots={matrixSlots} setSlots={setMatrixSlots} log={log} vars={vars} onSlotsChange={() => setMatrixTitle("")} readOnly={viewerMode} />
+            ? <SessionPicker slots={matrixSlots} setSlots={setMatrixSlots} log={log} vars={vars} onSlotsChange={() => setMatrixTitle("")} />
             : (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-foreground/60">Sessions ({matrixSlots.length})</span>
@@ -3731,6 +3739,25 @@ export default function App() {
               </div>
             </>
           )}
+          {viewerMode && originalMatrixShared.current && (() => {
+            const orig = originalMatrixShared.current;
+            const origIds = (orig.slots || []).map(s => s.id).sort().join(",");
+            const currIds = matrixSlots.map(s => s.id).sort().join(",");
+            if (origIds !== currIds) return (
+              <button onClick={() => {
+                setMatrixSlots(orig.slots || []);
+                setMatrixTitle(orig.title || "");
+                if (orig.rowVar) setMatrixRowVar(orig.rowVar);
+                if (orig.colVar) setMatrixColVar(orig.colVar);
+                if (orig.metric) setMatrixMetric(orig.metric);
+                setMatrixDetail(null);
+              }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-600 text-xs font-semibold cursor-pointer hover:bg-amber-500/20 transition-colors">
+                <RotateCcw size={12} /> Reset to Original
+              </button>
+            );
+            return null;
+          })()}
           <div className="flex-1" />
           {!viewerMode && (
             <>
@@ -3788,7 +3815,11 @@ export default function App() {
           <div className="px-6 py-5 flex items-center gap-4" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
             <div className="flex-1 min-w-0 text-center">
               {viewerMode ? (
-                <div className="text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>{matrixTitle || "Matrix Compare"}</div>
+                <div className="text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>
+                  {matrixSlots.length === 1
+                    ? (log.find(s => s.id === matrixSlots[0]?.id)?.config?.sessionName || "Matrix Compare")
+                    : matrixSlots.length > 1 ? "Session Comparison" : "Matrix Compare"}
+                </div>
               ) : (
                 <>
                   <input

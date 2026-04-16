@@ -46,6 +46,26 @@ function AttachmentCard({ att, onDelete, onClick }) {
   );
 }
 
+function VideoPlayer({ src, name, className }) {
+  const [error, setError] = useState(false);
+  if (error) {
+    return (
+      <div className={`${className || ''} bg-white/5 border border-white/10 rounded-xl p-8 text-center`}>
+        <p className="text-white/80 font-medium mb-2">Video cannot be played in browser</p>
+        <p className="text-white/40 text-xs mb-4">This file may use an unsupported codec (e.g. HEVC).</p>
+        <a href={src} target="_blank" rel="noreferrer" download={name}
+          className="text-[#FFDF00] text-sm hover:underline">Download video ↗</a>
+      </div>
+    );
+  }
+  return (
+    <video controls autoPlay playsInline onError={() => setError(true)}
+      className={className || "max-h-[90vh] max-w-[90vw] rounded-lg"}>
+      <source src={src} type="video/mp4" />
+    </video>
+  );
+}
+
 function MediaViewer({ att, onClose }) {
   if (!att) return null;
   const isImage = att.file_type?.startsWith('image/');
@@ -62,7 +82,7 @@ function MediaViewer({ att, onClose }) {
       </button>
       <div onClick={e => e.stopPropagation()} className="max-w-full max-h-full">
         {isImage && <img src={att.file_url} alt={att.file_name} className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />}
-        {isVideo && <video src={att.file_url} controls autoPlay className="max-h-[90vh] max-w-[90vw] rounded-lg" />}
+        {isVideo && <VideoPlayer src={att.file_url} name={att.file_name} className="max-h-[90vh] max-w-[90vw] rounded-lg" />}
         {!isImage && !isVideo && (
           <div className="bg-card border border-border rounded-lg p-8 text-center">
             <p className="text-4xl mb-4">{fileIconChar(att.file_type)}</p>
@@ -161,11 +181,10 @@ export function ShotCarousel({ attachments, title, onClose, shotMap, startIdx = 
             />
           )}
           {isVideo && (
-            <video
+            <VideoPlayer
               key={current.id}
               src={current.file_url}
-              controls
-              autoPlay
+              name={current.file_name}
               className="max-w-full max-h-full rounded-lg"
             />
           )}

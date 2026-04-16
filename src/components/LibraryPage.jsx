@@ -8,6 +8,26 @@ function fileIconChar(fileType) {
   return '📎';
 }
 
+function VideoPlayer({ src, name }) {
+  const [error, setError] = useState(false);
+  if (error) {
+    return (
+      <div className="max-h-[90vh] max-w-[90vw] rounded-lg bg-card border border-border p-8 text-center">
+        <p className="text-foreground font-medium mb-2">Video cannot be played in browser</p>
+        <p className="text-muted-foreground text-xs mb-4">This file may use an unsupported codec (e.g. HEVC).</p>
+        <a href={src} target="_blank" rel="noreferrer" download={name}
+          className="text-primary text-sm underline">Download video ↗</a>
+      </div>
+    );
+  }
+  return (
+    <video controls autoPlay playsInline onError={() => setError(true)}
+      className="max-h-[90vh] max-w-[90vw] rounded-lg">
+      <source src={src} type="video/mp4" />
+    </video>
+  );
+}
+
 function MediaViewer({ att, onClose }) {
   if (!att) return null;
   const isImage = att.file_type?.startsWith('image/');
@@ -17,7 +37,7 @@ function MediaViewer({ att, onClose }) {
       <button onClick={onClose} className="absolute top-4 right-4 size-8 rounded-full bg-white/10 text-white flex items-center justify-center cursor-pointer border-none text-lg hover:bg-white/20">✕</button>
       <div onClick={e => e.stopPropagation()} className="max-w-full max-h-full">
         {isImage && <img src={att.file_url} alt={att.file_name} className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />}
-        {isVideo && <video src={att.file_url} controls autoPlay className="max-h-[90vh] max-w-[90vw] rounded-lg" />}
+        {isVideo && <VideoPlayer src={att.file_url} name={att.file_name} />}
         {!isImage && !isVideo && (
           <div className="bg-card border border-border rounded-lg p-8 text-center">
             <p className="text-foreground font-medium mb-4">{att.file_name}</p>

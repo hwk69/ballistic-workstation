@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Plus, RotateCcw, Download, Save, FolderOpen, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, RotateCcw, Download, Save, FolderOpen, Trash2, ChevronDown, ChevronUp, History } from "lucide-react";
 import { toPng } from "html-to-image";
 import { cn } from "@/lib/utils";
 import * as d3 from "d3";
@@ -1349,6 +1349,28 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     }
   }, [viewId]);
 
+  // ─── Original shared state (for Reset to Original in viewer mode) ──────────
+  const originalShared = useRef(sharedComparison || null);
+
+  // Detect if viewer has modified the shared state
+  const viewerHasModified = useMemo(() => {
+    if (!readOnly || !originalShared.current) return false;
+    const orig = originalShared.current;
+    const origSlotIds = (orig.slots || []).map(s => s.id).sort().join(",");
+    const currSlotIds = slots.map(s => s.id).sort().join(",");
+    return origSlotIds !== currSlotIds;
+  }, [readOnly, slots]);
+
+  const handleResetToOriginal = useCallback(() => {
+    const orig = originalShared.current;
+    if (!orig) return;
+    setSlots(orig.slots || []);
+    setLayoutItems(orig.widgets?.length ? orig.widgets : null);
+    setWidgetOpts(orig.by ? { showGrid: true, ...orig.by } : { showGrid: true });
+    setHiddenMetrics(orig.metrics?.length ? new Set(orig.metrics) : new Set());
+    setAnalysisTitle(orig.title || "");
+  }, []);
+
   // ─── Layout state ──────────────────────────────────────────────────────────
   const [layoutItems, setLayoutItems] = useState(() => sharedComparison?.widgets?.length ? sharedComparison.widgets : null);
   const [widgetOpts, setWidgetOpts] = useState(() => sharedComparison?.by ? { showGrid: true, ...sharedComparison.by } : { showGrid: true });
@@ -1566,7 +1588,7 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
       {/* Session bar — full width, chips left, actions right */}
       <div className="mb-3 border border-border rounded-lg bg-secondary/40 px-4 py-2.5">
         {sessionPickerOpen
-          ? <SessionPicker slots={slots} setSlots={setSlots} log={log} vars={vars} onSlotsChange={() => setAnalysisTitle("")} readOnly={readOnly} />
+          ? <SessionPicker slots={slots} setSlots={setSlots} log={log} vars={vars} onSlotsChange={() => setAnalysisTitle("")} />
           : (
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-foreground/60">Sessions ({slots.length})</span>
@@ -1594,6 +1616,12 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
           <button onClick={() => onContinueSession?.(primarySession.id)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
             Edit Session
+          </button>
+        )}
+        {viewerHasModified && (
+          <button onClick={handleResetToOriginal}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-600 text-xs font-semibold cursor-pointer hover:bg-amber-500/20 transition-colors">
+            <History size={12} /> Reset to Original
           </button>
         )}
         <div className="flex-1" />
@@ -1658,7 +1686,7 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
         <div className="flex-1 min-w-0 text-center">
           {readOnly ? (
             <div className="text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>
-              {analysisTitle || (mode === "multi" ? "Comparison" : primarySession?.config?.sessionName || "Unnamed Session")}
+              {mode === "multi" ? (analysisTitle || "Session Comparison") : primarySession?.config?.sessionName || "Unnamed Session"}
             </div>
           ) : (
             <input
