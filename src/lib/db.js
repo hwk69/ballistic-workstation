@@ -284,3 +284,40 @@ export async function deleteAttachment(id, storagePath) {
   const { error } = await supabase.from('attachments').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Replace an existing attachment with a new file, keeping the same DB record association
+export async function replaceAttachment(existingId, existingStoragePath, newFile, shotId, sessionId) {
+  // 1. Upload new file
+  const ext = newFile.name.includes('.') ? newFile.name.split('.').pop() : '';
+  const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext ? '.' + ext : ''}`;
+  const newPath = `${sessionId}/${shotId}/${uniqueName}`;
+
+  const { error: ue } = await supabase.storage
+    .from('attachments')
+    .upload(newPath, newFile, { upsert: false });
+  if (ue) throw ue;
+
+  const { data: urlData } = supabase.storage
+    .from('attachments')
+    .getPublicUrl(newPath);
+
+  // 2. Update DB record with new file info
+  const { data, error } = await supabase
+    .from('attachments')
+    .update({
+      storage_path: newPath,
+      file_name: newFile.name,
+      file_url: urlData.publicUrl,
+      file_type: newFile.type,
+      file_size: newFile.size,
+    })
+    .eq('id', existingId)
+    .select()
+    .single();
+  if (error) throw error;
+
+  // 3. Delete old file from storage (best-effort)
+  await supabase.storage.from('attachments').remove([existingStoragePath]).catch(() => {});
+
+  return data;
+}

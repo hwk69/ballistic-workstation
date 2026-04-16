@@ -1,11 +1,63 @@
-import { useState, useEffect } from 'react';
-import { getAttachments, deleteAttachment } from '../lib/db.js';
+import { useState, useEffect, useRef } from 'react';
+import { getAttachments, deleteAttachment, replaceAttachment } from '../lib/db.js';
 
 function fileIconChar(fileType) {
   const kind = (fileType || '').split('/')[0];
   if (kind === 'video') return '▶';
   if (kind === 'application') return '📄';
   return '📎';
+}
+
+function LibraryCard({ att, isImage, isVideo, readOnly, onView, onDelete, onReplace }) {
+  const replaceRef = useRef();
+  return (
+    <div onClick={onView}
+      className="group relative bg-secondary border border-border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors">
+      <div className="aspect-square flex items-center justify-center bg-card/50">
+        {isImage ? (
+          <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <span className="text-3xl">{isVideo ? '▶' : fileIconChar(att.file_type)}</span>
+        )}
+        {isVideo && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <span className="text-white text-2xl">▶</span>
+          </div>
+        )}
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="export-hide text-[11px] text-foreground truncate font-medium">{att.file_name}</p>
+        <p className="text-[10px] text-muted-foreground truncate">{att.session_name}</p>
+        <p className="export-hide text-[10px] text-muted-foreground">{att.serial} · {new Date(att.created_at).toLocaleDateString()}</p>
+      </div>
+      {!readOnly && (
+        <>
+          {/* Replace button */}
+          <button
+            onClick={e => { e.stopPropagation(); replaceRef.current?.click(); }}
+            title="Replace file"
+            className="export-hide absolute top-1.5 left-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-[#FFDF00]/80 hover:text-black font-bold">
+            ↺
+          </button>
+          {/* Delete button */}
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            title="Delete file"
+            className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
+            ✕
+          </button>
+          <input
+            ref={replaceRef}
+            type="file"
+            accept="image/*,video/*,.pdf"
+            className="hidden"
+            onClick={e => e.stopPropagation()}
+            onChange={e => { const f = e.target.files?.[0]; if (f) { onReplace(f); e.target.value = ''; } }}
+          />
+        </>
+      )}
+    </div>
+  );
 }
 
 function VideoPlayer({ src, name }) {
@@ -92,6 +144,18 @@ export function LibraryPage({ log, vars, preFilterSessionIds, onError, readOnly 
     }
   };
 
+  const handleReplace = async (att, file) => {
+    try {
+      const updated = await replaceAttachment(att.id, att.storage_path, file, att.shot_id, att.session_id);
+      setAttachments(p => p.map(a => a.id === att.id
+        ? { ...updated, session_name: att.session_name, serial: att.serial, session_config: att.session_config }
+        : a
+      ));
+    } catch (err) {
+      onError?.('Replace failed: ' + err.message);
+    }
+  };
+
   const filtered = attachments.filter(att => {
     return Object.entries(filters).every(([k, v]) => {
       if (!v) return true;
@@ -145,33 +209,16 @@ export function LibraryPage({ log, vars, preFilterSessionIds, onError, readOnly 
             const isImage = att.file_type?.startsWith('image/');
             const isVideo = att.file_type?.startsWith('video/');
             return (
-              <div key={att.id} onClick={() => setViewer(att)}
-                className="group relative bg-secondary border border-border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors">
-                <div className="aspect-square flex items-center justify-center bg-card/50">
-                  {isImage ? (
-                    <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" loading="lazy" />
-                  ) : (
-                    <span className="text-3xl">{isVideo ? '▶' : fileIconChar(att.file_type)}</span>
-                  )}
-                  {isVideo && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                      <span className="text-white text-2xl">▶</span>
-                    </div>
-                  )}
-                </div>
-                <div className="px-2 py-1.5">
-                  <p className="export-hide text-[11px] text-foreground truncate font-medium">{att.file_name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{att.session_name}</p>
-                  <p className="export-hide text-[10px] text-muted-foreground">{att.serial} · {new Date(att.created_at).toLocaleDateString()}</p>
-                </div>
-                {!readOnly && (
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDelete(att.id, att.storage_path); }}
-                    className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
-                    ✕
-                  </button>
-                )}
-              </div>
+              <LibraryCard
+                key={att.id}
+                att={att}
+                isImage={isImage}
+                isVideo={isVideo}
+                readOnly={readOnly}
+                onView={() => setViewer(att)}
+                onDelete={() => handleDelete(att.id, att.storage_path)}
+                onReplace={(file) => handleReplace(att, file)}
+              />
             );
           })}
         </div>

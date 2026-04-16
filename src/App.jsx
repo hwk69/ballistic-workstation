@@ -444,6 +444,113 @@ function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, o
   );
 }
 
+// ─── Shot Attachment Manager (edit mode inline) ───────────────────────────────
+// Shows thumbnails of existing attachments with replace/delete, plus an Add button.
+function ShotAttachManager({ shotId, sessionId, serial, onError }) {
+  const [atts, setAtts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const addRef = useRef();
+  const replaceRefs = useRef({});
+
+  useEffect(() => {
+    if (!shotId) return;
+    setLoading(true);
+    db.getAttachments({ shotId })
+      .then(setAtts)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [shotId]);
+
+  const handleAdd = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const saved = await Promise.all(files.map(f => db.uploadAttachment(f, shotId, sessionId)));
+      setAtts(prev => [...prev, ...saved]);
+    } catch (err) {
+      onError?.('Upload failed: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleReplace = async (att, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    try {
+      const updated = await db.replaceAttachment(att.id, att.storage_path, file, shotId, sessionId);
+      setAtts(prev => prev.map(a => a.id === att.id ? updated : a));
+    } catch (err) {
+      onError?.('Replace failed: ' + err.message);
+    }
+  };
+
+  const handleDelete = async (att) => {
+    if (!confirm(`Delete ${att.file_name}?`)) return;
+    try {
+      await db.deleteAttachment(att.id, att.storage_path);
+      setAtts(prev => prev.filter(a => a.id !== att.id));
+    } catch (err) {
+      onError?.('Delete failed: ' + err.message);
+    }
+  };
+
+  const isImage = (att) => att.file_type?.startsWith('image/');
+  const isVideo = (att) => att.file_type?.startsWith('video/');
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap py-0.5">
+      {loading && <span className="text-[10px] text-muted-foreground">Loading…</span>}
+      {atts.map(att => (
+        <div key={att.id} className="group relative size-10 rounded-md overflow-hidden border border-border shrink-0 cursor-pointer"
+          title={att.file_name}>
+          {isImage(att)
+            ? <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center bg-secondary text-sm">
+                {isVideo(att) ? '▶' : '📎'}
+              </div>
+          }
+          {/* Hover overlay with Replace / Delete */}
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+            <button
+              title="Replace"
+              onClick={() => replaceRefs.current[att.id]?.click()}
+              className="size-5 rounded bg-white/20 hover:bg-[#FFDF00]/80 text-white hover:text-black flex items-center justify-center cursor-pointer border-none transition-colors text-[10px] font-bold">
+              ↺
+            </button>
+            <button
+              title="Delete"
+              onClick={() => handleDelete(att)}
+              className="size-5 rounded bg-white/20 hover:bg-destructive/80 text-white flex items-center justify-center cursor-pointer border-none transition-colors text-[10px]">
+              ✕
+            </button>
+          </div>
+          <input
+            ref={el => replaceRefs.current[att.id] = el}
+            type="file"
+            accept="image/*,video/*,.pdf"
+            className="hidden"
+            onChange={(e) => handleReplace(att, e)}
+          />
+        </div>
+      ))}
+      {/* Add button */}
+      <input ref={addRef} type="file" multiple accept="image/*,video/*,.pdf" className="hidden" onChange={handleAdd} />
+      <button
+        onClick={() => addRef.current?.click()}
+        disabled={uploading || !shotId}
+        title={`Add attachment to ${serial}`}
+        className="size-10 rounded-md border border-dashed border-border flex items-center justify-center cursor-pointer bg-transparent hover:bg-secondary/60 transition-colors disabled:opacity-40 text-muted-foreground hover:text-foreground shrink-0">
+        {uploading ? <span className="text-[10px]">…</span> : <Paperclip size={12} />}
+      </button>
+    </div>
+  );
+}
+
 // ─── Chart helpers ────────────────────────────────────────────────────────────
 function drawShots(g, shots, sc, color) {
   const ov = countOverlaps(shots), dr = {};
@@ -2853,14 +2960,11 @@ export default function App() {
                               <TblInput value={editVal._notes ?? ""} onChange={e => setEditVal(p => ({ ...p, _notes: e.target.value }))} />
                             </td>
                             <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
-                            <td className="px-2 py-1.5">
-                              <ShotAttachBtn
-                                shotId={s.id}
-                                sessionId={continuingSessionId}
-                                serial={s.serial}
-                                pendingCount={(pendingAttachments[s.serial] || []).length}
-                                onQueue={s.id ? undefined : queueAttachment}
-                                onError={setDbError} />
+                            <td className="px-2 py-1.5 min-w-[120px]">
+                              {s.id
+                                ? <ShotAttachManager shotId={s.id} sessionId={continuingSessionId} serial={s.serial} onError={setDbError} />
+                                : <ShotAttachBtn shotId={s.id} sessionId={continuingSessionId} serial={s.serial} pendingCount={(pendingAttachments[s.serial] || []).length} onQueue={queueAttachment} onError={setDbError} />
+                              }
                             </td>
                             <td className="px-2 py-1 text-right whitespace-nowrap">
                               <button onClick={saveEdit} className="text-primary text-xs font-semibold bg-transparent border-none cursor-pointer mr-2">Save</button>
