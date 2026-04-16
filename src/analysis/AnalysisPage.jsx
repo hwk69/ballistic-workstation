@@ -921,14 +921,23 @@ function ScoreTip({ enabledConfig, children }) {
   );
 }
 
-function CustomRankingsWidget({ resolved, mode, initiallyEditing, onEditingShown }) {
-  const [config, setConfig] = useState([]);
+function CustomRankingsWidget({ resolved, mode, initiallyEditing, onEditingShown, rankingsConfig, onRankingsConfigChange }) {
+  const [config, setConfig] = useState(rankingsConfig || []);
   const [editing, setEditing] = useState(!!initiallyEditing);
   const [showHint, setShowHint] = useState(!!initiallyEditing);
 
   useEffect(() => {
     if (initiallyEditing) onEditingShown?.();
   }, []);
+
+  // Sync config up to parent whenever it changes
+  const updateConfig = useCallback((updater) => {
+    setConfig((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      onRankingsConfigChange?.(next);
+      return next;
+    });
+  }, [onRankingsConfigChange]);
 
   // Build available metrics from the data
   const availableMetrics = useMemo(() => {
@@ -968,15 +977,15 @@ function CustomRankingsWidget({ resolved, mode, initiallyEditing, onEditingShown
     return metrics;
   }, [resolved]);
 
-  // Auto-initialize config if empty
+  // Auto-initialize config if empty (only when not restored from saved state)
   useEffect(() => {
     if (config.length === 0 && availableMetrics.length > 0) {
-      setConfig(availableMetrics.slice(0, 3).map((m) => ({ key: m.key, label: m.label, direction: m.defaultDir, enabled: true })));
+      updateConfig(availableMetrics.slice(0, 3).map((m) => ({ key: m.key, label: m.label, direction: m.defaultDir, enabled: true })));
     }
   }, [availableMetrics]);
 
   const toggleMetric = (key) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const exists = prev.find((c) => c.key === key);
       if (exists) return prev.map((c) => (c.key === key ? { ...c, enabled: !c.enabled } : c));
       const meta = availableMetrics.find((m) => m.key === key);
@@ -985,7 +994,7 @@ function CustomRankingsWidget({ resolved, mode, initiallyEditing, onEditingShown
   };
 
   const toggleDirection = (key) => {
-    setConfig((prev) => prev.map((c) => (c.key === key ? { ...c, direction: c.direction === "lower" ? "higher" : "lower" } : c)));
+    updateConfig((prev) => prev.map((c) => (c.key === key ? { ...c, direction: c.direction === "lower" ? "higher" : "lower" } : c)));
   };
 
   const getMetricValue = (r, metricKey) => {
@@ -1559,7 +1568,7 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     if (key === "metricsSummary") return <MetricsSummaryWidget resolved={resolved} mode={mode} opts={widgetOpts} toggleOpt={toggleOpt} hiddenMetrics={hiddenMetrics} onToggleMetric={toggleHiddenMetric} initiallyEditing={isNew} onEditingShown={() => clearNewlyAdded(key)} />;
     if (key === "shotTable") return <ShotTableWidget resolved={resolved} mode={mode} commonFields={commonFields} />;
     if (key === "attachments") return <AttachmentsWidget resolved={resolved} mode={mode} onError={onError} />;
-    if (key === "customRankings") return <CustomRankingsWidget resolved={resolved} mode={mode} initiallyEditing={isNew} onEditingShown={() => clearNewlyAdded(key)} />;
+    if (key === "customRankings") return <CustomRankingsWidget resolved={resolved} mode={mode} initiallyEditing={isNew} onEditingShown={() => clearNewlyAdded(key)} rankingsConfig={widgetOpts.customRankingsConfig || null} onRankingsConfigChange={(cfg) => setOpt("customRankingsConfig", cfg)} />;
     if (key === "correlationScatter") return <CorrelationScatterWidget resolved={resolved} mode={mode} allFields={allFields} />;
 
     // Dynamic single-metric ranking widgets
