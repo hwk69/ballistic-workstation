@@ -2468,7 +2468,7 @@ export default function App() {
     { label: "Setup",    ph: P.SETUP,    onClick: newSession },
     { label: "Fire",     ph: P.FIRE,     disabled: phase !== P.FIRE && !continuingSessionId, onClick: () => { if (continuingSessionId) setPhase(P.FIRE); } },
     { label: "Analysis", ph: P.ANALYSIS, disabled: !viewId && log.length === 0, onClick: () => setPhase(P.ANALYSIS) },
-    { label: "Matrix",   ph: P.MATRIX,   disabled: log.length === 0, onClick: () => { setMatrixSlots([]); setMatrixTitle(""); setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setMatrixPickerOpen(true); setPhase(P.MATRIX); } },
+    { label: "Matrix",   ph: P.MATRIX,   disabled: log.length === 0, onClick: () => setPhase(P.MATRIX) },
     { label: "History",  ph: P.HISTORY,  onClick: () => setPhase(P.HISTORY) },
     { label: "Library",  ph: P.LIBRARY,  onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
