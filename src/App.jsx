@@ -1676,8 +1676,9 @@ function TblInput({ value, onChange }) {
 }
 
 // ─── Measurement Fields Card ────────────────────────────────────────────────
-function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCustomPreset }) {
+function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCustomPreset, onRemoveCustomPreset }) {
   const [adding, setAdding] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [newField, setNewField] = useState({ name: "", type: "number", required: false, unit: "", options: [] });
   const [newOption, setNewOption] = useState("");
   const [customName, setCustomName] = useState(false);
@@ -1898,13 +1899,49 @@ function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCust
           </div>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)}
-          className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
-          style={{ color: "#6b6b7e" }}
-          onMouseEnter={e => e.target.style.color = "#111118"}
-          onMouseLeave={e => e.target.style.color = "#6b6b7e"}>
-          + Add Field
-        </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setAdding(true)}
+              className="text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider"
+              style={{ color: "#6b6b7e" }}
+              onMouseEnter={e => e.target.style.color = "#111118"}
+              onMouseLeave={e => e.target.style.color = "#6b6b7e"}>
+              + Add Field
+            </button>
+            {onRemoveCustomPreset && customPresets.length > 0 && (
+              <button onClick={() => setManaging(m => !m)}
+                className={`text-xs font-bold cursor-pointer bg-transparent border-none p-0 transition-colors uppercase tracking-wider ${managing ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+                {managing ? '✕ Close' : '✎ Manage Saved'}
+              </button>
+            )}
+          </div>
+          {managing && onRemoveCustomPreset && customPresets.length > 0 && (
+            <div className="rounded-lg border border-border bg-secondary/40 p-3 flex flex-col gap-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground pb-1">
+                Saved custom fields — these appear under "Saved" when adding a new field
+              </div>
+              {customPresets.map(p => (
+                <div key={p.key} className="flex items-center justify-between gap-2 px-2 py-1.5 bg-background border border-border rounded-md">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-sm font-medium text-foreground truncate">{p.label}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-secondary border border-border rounded px-1.5 py-0.5 shrink-0">
+                      {({ number: 'Number', yesno: 'Yes / No', text: 'Text', dropdown: 'Dropdown' })[p.type] || p.type}
+                    </span>
+                    {p.unit && <span className="text-[10px] text-muted-foreground shrink-0">{p.unit}</span>}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!confirm(`Delete saved field "${p.label}"? It will no longer appear in the Saved list when adding fields.`)) return;
+                      onRemoveCustomPreset(p.key);
+                    }}
+                    className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border border-border bg-background hover:bg-destructive hover:text-white hover:border-destructive cursor-pointer transition-colors">
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </CardSection>
   );
@@ -2465,6 +2502,13 @@ export default function App() {
       return updated;
     });
   }, []);
+  const removeCustomPreset = useCallback(async (key) => {
+    setCustomPresets(prev => {
+      const updated = prev.filter(p => p.key !== key);
+      db.saveSettings({ custom_presets: updated }).catch(err => setDbError('Preset save failed: ' + err.message));
+      return updated;
+    });
+  }, []);
   const addShot = useCallback(() => {
     // Validate required fields
     const sessionFields = cfg.fields || fields;
@@ -2516,17 +2560,17 @@ export default function App() {
         try {
           const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
           const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [shot] });
-          // Upload any pending attachments
-          const pending = Object.entries(pendingAttachments);
-          if (pending.length > 0) {
+          // Upload any attachments that were staged before Record was pressed.
+          // Use the locally-known stagedFiles directly — the pendingAttachments
+          // state closure is stale here because setPendingAttachments above hasn't
+          // committed yet, so reading it would lose files queued for _next_0.
+          if (stagedFiles?.length) {
+            const savedShot = saved.shots.find(s => s.serial === serial) || saved.shots[0];
             await Promise.allSettled(
-              pending.flatMap(([serial, files]) => {
-                const sh = saved.shots.find(s => s.serial === serial);
-                return files.map(file => db.uploadAttachment(file, sh?.id ?? null, saved.id));
-              })
+              stagedFiles.map(file => db.uploadAttachment(file, savedShot?.id ?? null, saved.id))
             );
-            setPendingAttachments({});
           }
+          setPendingAttachments({});
           setContinuingSessionId(saved.id);
           setShots(saved.shots.map(sh => ({ ...sh })));
           const entry = { ...saved, stats: calcStats(saved.shots, saved.config.fields || fields) };
@@ -2729,7 +2773,7 @@ export default function App() {
         </div>
       </CardSection>
 
-      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} customPresets={customPresets} onAddCustomPreset={addCustomPreset} />
+      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} customPresets={customPresets} onAddCustomPreset={addCustomPreset} onRemoveCustomPreset={removeCustomPreset} />
 
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2866,7 +2910,7 @@ export default function App() {
             </div>
             {/* Measurement fields editor */}
             <div className="mt-3 pt-3 border-t border-border">
-              <MeasurementFieldsCard fields={cfg.fields || fields} onUpdate={nf => { up("fields", nf); setCur(Object.fromEntries(nf.map(f => [f.key, ""]))); }} customPresets={customPresets} onAddCustomPreset={addCustomPreset} />
+              <MeasurementFieldsCard fields={cfg.fields || fields} onUpdate={nf => { up("fields", nf); setCur(Object.fromEntries(nf.map(f => [f.key, ""]))); }} customPresets={customPresets} onAddCustomPreset={addCustomPreset} onRemoveCustomPreset={removeCustomPreset} />
             </div>
           </div>
         )}
