@@ -218,6 +218,25 @@ export async function deleteComparison(id) {
   if (error) throw error;
 }
 
+// ─── Sharing ─────────────────────────────────────────────────────────────────
+export async function generateShareToken(comparisonId) {
+  const token = crypto.randomUUID();
+  const { data, error } = await supabase
+    .from('comparisons')
+    .update({ share_token: token })
+    .eq('id', comparisonId)
+    .select('share_token')
+    .single();
+  if (error) throw error;
+  return data.share_token;
+}
+
+export async function getSharedData(token) {
+  const { data, error } = await supabase.rpc('get_shared_data', { token });
+  if (error) throw error;
+  return data;
+}
+
 // ─── Attachments (Phase 2) ────────────────────────────────────────────────────
 export async function uploadAttachment(file, shotId, sessionId) {
   const ext = file.name.includes('.') ? file.name.split('.').pop() : '';

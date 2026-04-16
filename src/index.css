@@ -113,3 +113,9 @@ button { font-family: inherit; }
 .export-root.export-mode .rgl-remove-btn { display: none; }
 .export-root.export-mode .widget-add-bar { display: none; }
 .export-root.export-mode .export-hide { display: none; }
+
+/* ─── Analysis PNG Export ────────────────────────────────────────────────── */
+/* Hide all interactive controls when .exporting is on the capture container */
+.exporting .export-hide { display: none !important; }
+.export-only { display: none !important; }
+.exporting .export-only { display: block !important; }

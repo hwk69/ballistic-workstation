@@ -79,8 +79,8 @@ function MediaViewer({ att, onClose }) {
 // ─── Shot Carousel Lightbox ──────────────────────────────────────────────────
 // Opens as a full-screen overlay showing all attachments for one shot
 // with left/right navigation, thumbnail strip, and keyboard support.
-export function ShotCarousel({ attachments, serial, onClose }) {
-  const [idx, setIdx] = useState(0);
+export function ShotCarousel({ attachments, title, onClose, shotMap, startIdx = 0 }) {
+  const [idx, setIdx] = useState(startIdx);
   const thumbRef = useRef(null);
 
   const count = attachments?.length || 0;
@@ -109,6 +109,7 @@ export function ShotCarousel({ attachments, serial, onClose }) {
 
   const isImage = current.file_type?.startsWith('image/');
   const isVideo = current.file_type?.startsWith('video/');
+  const currentSerial = shotMap?.[current.shot_id]?.serial || '';
 
   const navBtn = "absolute top-1/2 -translate-y-1/2 z-20 size-10 rounded-full flex items-center justify-center cursor-pointer border-none transition-all duration-200";
 
@@ -120,7 +121,8 @@ export function ShotCarousel({ attachments, serial, onClose }) {
       {/* Header */}
       <div className="relative z-10 flex items-center justify-between px-5 py-3.5 shrink-0">
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[13px] font-bold text-white/90 tracking-wide">{serial}</span>
+          {title && <span className="text-[13px] font-bold text-white/90 tracking-wide">{title}</span>}
+          {currentSerial && <span className="font-mono text-[12px] font-semibold text-[#FFDF00] tracking-wide">{currentSerial}</span>}
           <span className="text-[11px] text-white/40 font-medium">{idx + 1} / {count}</span>
         </div>
         <button

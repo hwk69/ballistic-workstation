@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Plus, RotateCcw, Download, Save, FolderOpen, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Download, Save, FolderOpen, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { toPng } from "html-to-image";
 import { cn } from "@/lib/utils";
 import * as d3 from "d3";
@@ -13,6 +13,7 @@ import SessionPicker from "./SessionPicker.jsx";
 import WidgetGrid from "./WidgetGrid.jsx";
 import { AttachmentWidget, ShotCarousel } from "../components/AttachmentWidget.jsx";
 import { Paperclip } from "lucide-react";
+import { ShareButton } from "../components/ShareButton.jsx";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -141,10 +142,10 @@ function SB({ label, value, gold, accentColor, onClick, active }) {
           style={{ background: active ? accentColor : "rgba(255,255,255,0.12)" }} />
       )}
       <div className="text-[9px] font-bold uppercase tracking-[0.16em] mb-2.5"
-        style={{ color: ac || "var(--color-muted-foreground)" }}>
+        style={{ color: "var(--color-muted-foreground)" }}>
         <MetricTip label={label}>{label}</MetricTip>
       </div>
-      <div className="text-[22px] font-bold font-mono leading-none tabular-nums" style={{ color: ac || "var(--color-foreground)" }}>
+      <div className="text-[22px] font-bold font-mono leading-none tabular-nums text-foreground">
         {value}
       </div>
     </div>
@@ -382,7 +383,10 @@ function DispersionWidget({ resolved, mode, opts, toggleOpt }) {
             <Toggle key={k} label={l} on={opts[k]} onToggle={() => toggleOpt(k)} color={c} />
           ))}
         </div>
-        <AutoSizeChart render={(w) => <DispersionChart shots={shots} stats={stats} size={Math.min(w, 420) - 12} opts={opts} color={color || G} />} />
+        <AutoSizeChart render={(w) => {
+          const sz = Math.min(w, 420) - 12;
+          return <div className="flex justify-center"><DispersionChart shots={shots} stats={stats} size={sz} opts={opts} color={color || G} /></div>;
+        }} />
       </>
     );
   }
@@ -395,12 +399,15 @@ function DispersionWidget({ resolved, mode, opts, toggleOpt }) {
           <Toggle key={k} label={l} on={opts[k]} onToggle={() => toggleOpt(k)} color={c} />
         ))}
       </div>
-      <AutoSizeChart render={(w) => <DispersionMulti sessions={sessions} size={Math.min(w, 420) - 12} opts={opts} />} />
-      <div className="flex gap-3 mt-2 flex-wrap">
+      <AutoSizeChart render={(w) => {
+        const sz = Math.min(w, 420) - 12;
+        return <div className="flex justify-center"><DispersionMulti sessions={sessions} size={sz} opts={opts} /></div>;
+      }} />
+      <div className="flex gap-3 mt-2 flex-wrap justify-center">
         {resolved.map((r) => (
           <span key={r.session.id} className="inline-flex items-center gap-1.5 text-xs">
             <span className="size-2.5 rounded-full" style={{ background: r.color }} />
-            <span style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</span>
+            <span className="text-foreground font-semibold">{r.session.config.sessionName || "Unnamed"}</span>
             <span className="text-muted-foreground">({r.shots.length})</span>
           </span>
         ))}
@@ -409,8 +416,13 @@ function DispersionWidget({ resolved, mode, opts, toggleOpt }) {
   );
 }
 
-function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, onToggleMetric }) {
-  const [editMode, setEditMode] = useState(false);
+function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, onToggleMetric, initiallyEditing, onEditingShown }) {
+  const [editMode, setEditMode] = useState(!!initiallyEditing);
+  const [showHint, setShowHint] = useState(!!initiallyEditing);
+
+  useEffect(() => {
+    if (initiallyEditing) onEditingShown?.();
+  }, []);
 
   if (mode === "single") {
     const { stats } = resolved[0];
@@ -452,13 +464,20 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
       <>
         <div className="flex items-center gap-2 mb-2">
           {stats.hasXY && <p className="text-[10px] text-muted-foreground/50 flex-1">Click CEP, R90, or MPI to toggle overlays</p>}
-          <button onClick={() => setEditMode((e) => !e)}
+          <button onClick={() => { setEditMode((e) => !e); setShowHint(false); }}
             className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
             {editMode ? "Done" : "Edit metrics"}
           </button>
         </div>
         {editMode && (
-          <div className="flex gap-1 flex-wrap mb-3">
+          <div className="mb-3">
+            {showHint && (
+              <div className="text-[10px] text-primary/80 mb-2 flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
+                Toggle which metrics to show, then click Done
+              </div>
+            )}
+            <div className="flex gap-1 flex-wrap">
             {allCards.map((c) => (
               <button key={c.id} onClick={() => onToggleMetric(c.id)}
                 className={cn(
@@ -470,6 +489,7 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
                 {c.id}
               </button>
             ))}
+            </div>
           </div>
         )}
         <div className="grid grid-cols-2 gap-2">{visible.map((c) => <div key={c.id}>{c.el}</div>)}</div>
@@ -526,13 +546,20 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
     <>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[10px] text-muted-foreground/50 flex-1" />
-        <button onClick={() => setEditMode((e) => !e)}
+        <button onClick={() => { setEditMode((e) => !e); setShowHint(false); }}
           className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
           {editMode ? "Done" : "Edit metrics"}
         </button>
       </div>
       {editMode && (
-        <div className="flex gap-1 flex-wrap mb-3">
+        <div className="mb-3">
+          {showHint && (
+            <div className="text-[10px] text-primary/80 mb-2 flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
+              Toggle which metrics to show, then click Done
+            </div>
+          )}
+          <div className="flex gap-1 flex-wrap">
           {metrics.map((m) => (
             <button key={m.label} onClick={() => onToggleMetric(m.label)}
               className={cn(
@@ -544,16 +571,20 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
               {m.label}
             </button>
           ))}
+          </div>
         </div>
       )}
       <div className="overflow-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left text-muted-foreground text-[10px] uppercase tracking-wide px-2 py-1.5">Metric</th>
+              <th className="text-left text-foreground/70 font-bold text-[11px] uppercase tracking-wide px-2 py-1.5">Metric</th>
               {resolved.map((r) => (
-                <th key={r.session.id} className="text-right text-[10px] uppercase tracking-wide px-2 py-1.5" style={{ color: r.color }}>
-                  {r.session.config.sessionName || "Unnamed"}
+                <th key={r.session.id} className="text-right text-[10px] uppercase tracking-wide px-2 py-1.5 text-foreground">
+                  <span className="inline-flex items-center gap-1 justify-end">
+                    <span className="size-2 rounded-full shrink-0" style={{ background: r.color }} />
+                    {r.session.config.sessionName || "Unnamed"}
+                  </span>
                 </th>
               ))}
             </tr>
@@ -566,15 +597,15 @@ function MetricsSummaryWidget({ resolved, mode, opts, toggleOpt, hiddenMetrics, 
               const best = valid.length > 0 ? (isLower ? Math.min(...valid) : Math.max(...valid)) : null;
               return (
                 <tr key={m.label} className="border-b border-border">
-                  <td className="text-muted-foreground px-2 py-1.5">
+                  <td className="text-foreground/80 font-medium px-2 py-1.5">
                     <MetricTip label={m.label}>{m.label}</MetricTip>
                   </td>
                   {resolved.map((r) => {
                     const val = m.getValue(r);
                     const isBest = val === best && valid.length > 1;
                     return (
-                      <td key={r.session.id} className="text-right px-2 py-1.5 font-mono tabular-nums"
-                        style={{ color: isBest ? r.color : "var(--color-foreground)", fontWeight: isBest ? 700 : 400 }}>
+                      <td key={r.session.id} className="text-right px-2 py-1.5 font-mono tabular-nums text-foreground"
+                        style={{ fontWeight: isBest ? 700 : 400 }}>
                         {val != null ? Number(val).toFixed(m.decimals) : "\u2014"}
                         {isBest && " \u2726"}
                       </td>
@@ -615,7 +646,7 @@ function AttainmentRateWidget({ resolved, mode, fieldKey, fieldLabel }) {
             return (
               <div key={r.session.id} className="text-center">
                 <DonutChart yesCount={fs.yes} noCount={fs.no} total={fs.total} label={fieldLabel} width={colW} height={DONUT_H} color={r.color} />
-                <div className="text-xs mt-1" style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</div>
+                <div className="text-xs mt-1 inline-flex items-center gap-1 text-foreground font-semibold"><span className="size-2 rounded-full" style={{ background: r.color }} />{r.session.config.sessionName || "Unnamed"}</div>
               </div>
             );
           })}
@@ -656,14 +687,14 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 bg-card z-10">
             <tr className="border-b border-border">
-              {mode === "multi" && <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Session</th>}
-              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">#</th>
-              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
+              {mode === "multi" && <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">Session</th>}
+              <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">#</th>
+              <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">Serial</th>
               {sf.map((f) => (
-                <th key={f.key} className={cn("text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5", f.type === "number" ? "text-right" : "text-left")}>{f.label}</th>
+                <th key={f.key} className={cn("text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5", f.type === "number" ? "text-right" : "text-left")}>{f.label}</th>
               ))}
-              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
-              <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2.5 py-1.5 text-center w-10">
+              <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
+              <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-center w-10">
                 <Paperclip size={11} className="inline-block" />
               </th>
             </tr>
@@ -674,9 +705,9 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
               const bgStyle = mode === "multi" ? { background: s.sessionColor + "18", borderColor: s.sessionColor + "30" } : {};
               return (
                 <tr key={i} className="border-b border-border transition-colors duration-150 hover:bg-accent/40" style={bgStyle}>
-                  {mode === "multi" && <td className="px-2.5 py-1.5 font-semibold" style={{ color: s.sessionColor }}>{s.sessionName}</td>}
-                  <td className="text-muted-foreground px-2.5 py-1.5">{s.shotNum}</td>
-                  <td className="text-muted-foreground px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
+                  {mode === "multi" && <td className="px-2.5 py-1.5 font-semibold text-foreground"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: s.sessionColor }} />{s.sessionName}</span></td>}
+                  <td className="text-foreground/70 px-2.5 py-1.5">{s.shotNum}</td>
+                  <td className="text-foreground/60 px-2.5 py-1.5 font-mono text-[11px]">{s.serial}</td>
                   {sf.map((f) => {
                     const val = (s.data || s)[f.key];
                     let display = "";
@@ -685,11 +716,12 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
                     else if (val !== null && val !== undefined) display = String(val);
                     return <td key={f.key} className={cn("px-2.5 py-1.5", f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground")}>{display || "\u2014"}</td>;
                   })}
-                  <td className="text-muted-foreground px-2.5 py-1.5">{s.timestamp}</td>
+                  <td className="text-foreground/60 px-2.5 py-1.5">{s.timestamp}</td>
                   <td className="px-2.5 py-1.5 text-center">
                     {shotAtts.length > 0 ? (
                       <button onClick={() => setCarousel({ shotId: s.id, serial: s.serial, atts: shotAtts })}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/8 hover:bg-primary/15 text-primary cursor-pointer border-none transition-colors"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-foreground cursor-pointer transition-colors hover:brightness-110"
+                        style={{ border: `1.5px solid ${G}`, background: G + "35" }}
                         title={`${shotAtts.length} attachment${shotAtts.length > 1 ? "s" : ""}`}>
                         <Paperclip size={10} />
                         <span className="text-[10px] font-bold">{shotAtts.length}</span>
@@ -702,7 +734,7 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
           </tbody>
         </table>
       </div>
-      {carousel && <ShotCarousel attachments={carousel.atts} serial={carousel.serial} onClose={() => setCarousel(null)} />}
+      {carousel && <ShotCarousel attachments={carousel.atts} title={carousel.serial} onClose={() => setCarousel(null)} />}
     </>
   );
 }
@@ -747,7 +779,7 @@ function AttachmentsWidget({ resolved, mode, onError }) {
     const grouped = {};
     for (const a of attachments) {
       const shot = shotMap[a.shot_id];
-      const key = shot ? `${shot.sessionName} \u2014 ${shot.serial}` : "Unlinked";
+      const key = shot?.serial || "Unlinked";
       if (!grouped[key]) grouped[key] = { label: key, color: shot?.sessionColor || "#888", items: [] };
       grouped[key].items.push(a);
     }
@@ -758,67 +790,97 @@ function AttachmentsWidget({ resolved, mode, onError }) {
     return <div className="text-muted-foreground text-sm py-4 text-center">No attachments</div>;
   }
 
-  // ─── Compare mode: one thumbnail per session ────────────────────────────────
+  // ─── Album card helper ─────────────────────────────────────────────────────
+  const AlbumCard = ({ items, label, color, allAtts, startIdx = 0, title }) => {
+    if (!items.length) return (
+      <div className="text-center w-[120px]">
+        <div className="w-[120px] h-[120px] rounded-xl border border-border bg-secondary/60 flex items-center justify-center text-muted-foreground text-xs">No files</div>
+        <div className="text-[11px] font-semibold mt-2 flex items-center justify-center gap-1.5 text-foreground">
+          <span className="size-2 rounded-full shrink-0" style={{ background: color }} />{label}
+        </div>
+      </div>
+    );
+    const thumb = items.find((a) => a.file_type?.startsWith("image/")) || items[0];
+    const isImage = thumb.file_type?.startsWith("image/");
+    const isVideo = thumb.file_type?.startsWith("video/");
+    const hasStack = items.length > 1;
+
+    return (
+      <button
+        onClick={() => setCarousel({ atts: allAtts || items, startIdx, title: title || label })}
+        className="text-center cursor-pointer bg-transparent border-none p-0 group w-[120px]">
+        {/* Stack effect + thumbnail */}
+        <div className="relative w-[120px] h-[120px]">
+          {/* Back cards for stack effect */}
+          {hasStack && (
+            <>
+              <div className="absolute top-1 left-1 w-[120px] h-[120px] rounded-xl border border-border/40 bg-secondary/50 rotate-[-3deg]" />
+              <div className="absolute top-0.5 left-0.5 w-[120px] h-[120px] rounded-xl border border-border/60 bg-secondary/70 rotate-[-1.5deg]" />
+            </>
+          )}
+          {/* Main thumbnail */}
+          <div className="relative w-[120px] h-[120px] rounded-xl overflow-hidden border-2 border-border group-hover:border-primary/60 transition-all duration-200 group-hover:shadow-lg">
+            {isImage && <img src={thumb.file_url} alt="" className="w-full h-full object-cover" />}
+            {isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-2xl">{"\u25b6"}</div>}
+            {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-sm">PDF</div>}
+            {/* Hover overlay */}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-xs font-semibold bg-black/50 px-2.5 py-1 rounded-full backdrop-blur-sm">
+                View album
+              </span>
+            </div>
+            {/* File count badge */}
+            <div className="absolute top-1.5 right-1.5 bg-black/70 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md min-w-[20px] text-center">
+              {items.length}
+            </div>
+          </div>
+        </div>
+        {/* Label */}
+        <div className="mt-2.5 flex items-center justify-center gap-1.5">
+          <span className="size-2 rounded-full shrink-0" style={{ background: color }} />
+          <span className="text-[11px] font-semibold text-foreground truncate max-w-[110px]">{label}</span>
+        </div>
+      </button>
+    );
+  };
+
+  // ─── Compare mode: one album per session ───────────────────────────────────
   if (mode === "multi") {
     return (
       <>
-        <div className="flex gap-4 flex-wrap justify-center">
-          {sessionGroups.map((sg) => {
-            if (!sg.items.length) return (
-              <div key={sg.sessionId} className="text-center">
-                <div className="w-24 h-24 rounded-lg border border-border bg-secondary flex items-center justify-center text-muted-foreground text-xs">No files</div>
-                <div className="text-[11px] font-semibold mt-1.5" style={{ color: sg.color }}>{sg.name}</div>
-              </div>
-            );
-            const thumb = sg.items.find((a) => a.file_type?.startsWith("image/")) || sg.items[0];
-            const isImage = thumb.file_type?.startsWith("image/");
-            const isVideo = thumb.file_type?.startsWith("video/");
-            return (
-              <button key={sg.sessionId}
-                onClick={() => setCarousel({ shotId: thumb.shot_id, serial: sg.name, atts: sg.items })}
-                className="text-center cursor-pointer bg-transparent border-none p-0 group">
-                <div className="w-24 h-24 rounded-lg overflow-hidden border-2 border-border group-hover:border-primary/50 transition-colors">
-                  {isImage && <img src={thumb.file_url} alt="" className="w-full h-full object-cover" />}
-                  {isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-lg">{"\u25b6"}</div>}
-                  {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center bg-secondary text-muted-foreground text-xs">PDF</div>}
-                </div>
-                <div className="text-[11px] font-semibold mt-1.5" style={{ color: sg.color }}>{sg.name}</div>
-                <div className="text-[10px] text-muted-foreground">{sg.items.length} file{sg.items.length !== 1 ? "s" : ""}</div>
-              </button>
-            );
-          })}
+        <div className="flex gap-6 flex-wrap justify-center py-2">
+          {sessionGroups.map((sg) => (
+            <AlbumCard key={sg.sessionId} items={sg.items} label={sg.name} color={sg.color} title={sg.name} />
+          ))}
         </div>
-        {carousel && <ShotCarousel attachments={carousel.atts} serial={carousel.serial} onClose={() => setCarousel(null)} />}
+        {carousel && <ShotCarousel attachments={carousel.atts} title={carousel.title} shotMap={shotMap} onClose={() => setCarousel(null)} startIdx={carousel.startIdx} />}
       </>
     );
   }
 
-  // ─── Single mode: show all thumbnails grouped by shot ───────────────────────
+  // ─── Single mode: album per shot ───────────────────────────────────────────
+  // Flat list of all attachments for carousel navigation across shots
+  const allAttsFlat = shotGroups.flatMap((g) => g.items);
+
   return (
     <>
-      <div className="space-y-4">
-        {shotGroups.map((group) => (
-          <div key={group.label}>
-            <div className="text-[11px] font-semibold mb-2" style={{ color: group.color }}>{group.label}</div>
-            <div className="flex gap-2 flex-wrap">
-              {group.items.map((a) => {
-                const isImage = a.file_type?.startsWith("image/");
-                const isVideo = a.file_type?.startsWith("video/");
-                return (
-                  <button key={a.id}
-                    onClick={() => setCarousel({ shotId: a.shot_id, serial: group.label, atts: group.items })}
-                    className="w-16 h-16 rounded-md overflow-hidden border border-border hover:border-primary/40 cursor-pointer bg-secondary transition-colors p-0">
-                    {isImage && <img src={a.file_url} alt="" className="w-full h-full object-cover" />}
-                    {isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">{"\u25b6"}</div>}
-                    {!isImage && !isVideo && <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[9px]">PDF</div>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      <div className="flex gap-5 flex-wrap justify-center py-2">
+        {shotGroups.map((group) => {
+          // Find start index in the flat list for this group
+          const startIdx = allAttsFlat.findIndex((a) => a.id === group.items[0]?.id);
+          return (
+            <AlbumCard
+              key={group.label}
+              items={group.items}
+              label={group.label}
+              color={group.color}
+              allAtts={allAttsFlat}
+              startIdx={startIdx >= 0 ? startIdx : 0}
+            />
+          );
+        })}
       </div>
-      {carousel && <ShotCarousel attachments={carousel.atts} serial={carousel.serial} onClose={() => setCarousel(null)} />}
+      {carousel && <ShotCarousel attachments={carousel.atts} title={carousel.title} shotMap={shotMap} onClose={() => setCarousel(null)} startIdx={carousel.startIdx} />}
     </>
   );
 }
@@ -859,9 +921,14 @@ function ScoreTip({ enabledConfig, children }) {
   );
 }
 
-function CustomRankingsWidget({ resolved, mode }) {
+function CustomRankingsWidget({ resolved, mode, initiallyEditing, onEditingShown }) {
   const [config, setConfig] = useState([]);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!initiallyEditing);
+  const [showHint, setShowHint] = useState(!!initiallyEditing);
+
+  useEffect(() => {
+    if (initiallyEditing) onEditingShown?.();
+  }, []);
 
   // Build available metrics from the data
   const availableMetrics = useMemo(() => {
@@ -959,7 +1026,7 @@ function CustomRankingsWidget({ resolved, mode }) {
         <span className="text-[10px] text-muted-foreground/50 flex-1">
           {resolved.length < 2 ? "Add sessions to compare rankings" : `${rankings.length} sessions ranked`}
         </span>
-        <button onClick={() => setEditing((e) => !e)}
+        <button onClick={() => { setEditing((e) => !e); setShowHint(false); }}
           className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors">
           {editing ? "Done" : "Configure"}
         </button>
@@ -967,6 +1034,12 @@ function CustomRankingsWidget({ resolved, mode }) {
 
       {editing && (
         <div className="mb-4 p-3 bg-secondary/50 rounded-lg border border-border">
+          {showHint && (
+            <div className="text-[10px] text-primary/80 mb-2 flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
+              Choose which metrics to rank by, then click Done
+            </div>
+          )}
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Rank by:</div>
           <div className="space-y-1.5">
             {availableMetrics.map((m) => {
@@ -1012,8 +1085,8 @@ function CustomRankingsWidget({ resolved, mode }) {
             <tbody>
               {rankings.map((rank, i) => (
                 <tr key={rank.session.id} className="border-b border-border" style={i === 0 ? { background: rank.color + "12" } : {}}>
-                  <td className="px-2 py-1.5 font-bold" style={{ color: i === 0 ? rank.color : "var(--color-muted-foreground)" }}>{i + 1}</td>
-                  <td className="px-2 py-1.5 font-semibold" style={{ color: rank.color }}>
+                  <td className={cn("px-2 py-1.5 font-bold", i === 0 ? "text-foreground" : "text-muted-foreground")}>{i + 1}</td>
+                  <td className="px-2 py-1.5 font-semibold text-foreground">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="size-2 rounded-full" style={{ background: rank.color }} />
                       {rank.session.config.sessionName || "Unnamed"}
@@ -1027,7 +1100,7 @@ function CustomRankingsWidget({ resolved, mode }) {
                       </td>
                     );
                   })}
-                  <td className="text-right px-2 py-1.5 font-mono tabular-nums font-bold" style={{ color: i === 0 ? rank.color : undefined }}>
+                  <td className={cn("text-right px-2 py-1.5 font-mono tabular-nums font-bold", i === 0 ? "text-foreground" : "")}>
                     {(1 - rank.composite).toFixed(2)}
                   </td>
                 </tr>
@@ -1046,7 +1119,9 @@ function CustomRankingsWidget({ resolved, mode }) {
   );
 }
 
-function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction }) {
+function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction: defaultDirection }) {
+  const [dir, setDir] = useState(defaultDirection);
+
   const getValue = (r) => {
     if (metricKey.startsWith("yesno:")) return r.stats.fieldStats?.[metricKey.slice(6)]?.pct ?? null;
     if (metricKey.startsWith("fieldMean:")) return r.stats.fieldStats?.[metricKey.slice(10)]?.mean ?? null;
@@ -1055,9 +1130,9 @@ function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction
 
   const ranked = useMemo(() => {
     const items = resolved.map((r) => ({ ...r, value: getValue(r) })).filter((r) => r.value != null);
-    items.sort((a, b) => direction === "lower" ? a.value - b.value : b.value - a.value);
+    items.sort((a, b) => dir === "lower" ? a.value - b.value : b.value - a.value);
     return items;
-  }, [resolved, metricKey, direction]);
+  }, [resolved, metricKey, dir]);
 
   if (ranked.length === 0) return <div className="text-muted-foreground text-sm py-4 text-center">No data</div>;
 
@@ -1069,18 +1144,18 @@ function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction
     <div className="space-y-1.5">
       {ranked.map((r, i) => {
         const pct = range > 0 ? Math.abs(r.value - worst) / range : 1;
-        const barPct = direction === "lower" ? pct : 1 - (Math.abs(r.value - best) / range);
+        const barPct = dir === "lower" ? pct : 1 - (Math.abs(r.value - best) / range);
         return (
           <div key={r.session.id} className="flex items-center gap-2">
-            <span className="text-xs font-bold w-5 text-right" style={{ color: i === 0 ? r.color : "var(--color-muted-foreground)" }}>{i + 1}</span>
+            <span className={cn("text-xs font-bold w-5 text-right", i === 0 ? "text-foreground" : "text-muted-foreground")}>{i + 1}</span>
             <div className="flex-1 relative h-7 rounded-md overflow-hidden bg-secondary">
               <div className="absolute inset-y-0 left-0 rounded-md transition-all duration-300" style={{ width: `${Math.max(barPct * 100, 8)}%`, background: r.color + "30", borderRight: `2px solid ${r.color}` }} />
               <div className="absolute inset-0 flex items-center justify-between px-2.5">
-                <span className="text-[11px] font-semibold" style={{ color: r.color }}>
+                <span className="text-[11px] font-semibold text-foreground">
                   <span className="size-2 rounded-full inline-block mr-1.5" style={{ background: r.color }} />
                   {r.session.config.sessionName || "Unnamed"}
                 </span>
-                <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: i === 0 ? r.color : "var(--color-foreground)" }}>
+                <span className="text-[11px] font-mono font-bold tabular-nums text-foreground">
                   {Number.isInteger(r.value) ? r.value : r.value.toFixed(2)}
                   {i === 0 && " \u2726"}
                 </span>
@@ -1089,9 +1164,11 @@ function SingleMetricRankingWidget({ resolved, metricKey, metricLabel, direction
           </div>
         );
       })}
-      <div className="text-[9px] text-muted-foreground/50 text-right mt-1">
-        {direction === "lower" ? "\u2193 Lower" : "\u2191 Higher"} is better
-      </div>
+      <button
+        onClick={() => setDir((d) => d === "lower" ? "higher" : "lower")}
+        className="text-[9px] text-muted-foreground/50 hover:text-foreground cursor-pointer bg-transparent border-none transition-colors text-right w-full mt-1">
+        {dir === "lower" ? "\u2193 Lower" : "\u2191 Higher"} is better <span className="text-muted-foreground/30 ml-0.5">(click to switch)</span>
+      </button>
     </div>
   );
 }
@@ -1200,7 +1277,7 @@ function FieldDistributionWidget({ resolved, mode, fieldKey, fieldLabel, fieldUn
         return (
           <div key={r.session.id} className="text-center">
             <VelHist shots={fpsShots} width={260} color={r.color} />
-            <div className="text-xs mt-1" style={{ color: r.color }}>{r.session.config.sessionName || "Unnamed"}</div>
+            <div className="text-xs mt-1 inline-flex items-center gap-1 text-foreground font-semibold"><span className="size-2 rounded-full" style={{ background: r.color }} />{r.session.config.sessionName || "Unnamed"}</div>
           </div>
         );
       })}
@@ -1210,7 +1287,7 @@ function FieldDistributionWidget({ resolved, mode, fieldKey, fieldLabel, fieldUn
 
 // ─── Add Widget Dropdown ──────────────────────────────────────────────────────
 
-function AddWidgetDropdown({ available, registry, onAdd }) {
+function AddWidgetDropdown({ available, registry, onAdd, dropUp }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
 
@@ -1235,7 +1312,7 @@ function AddWidgetDropdown({ available, registry, onAdd }) {
         <Plus size={12} /> Add Widget
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-card border border-border rounded-lg p-2 shadow-xl min-w-[200px]">
+        <div className={cn("absolute left-0 z-50 bg-card border border-border rounded-lg p-2 shadow-xl min-w-[200px] max-h-[320px] overflow-auto", dropUp ? "bottom-full mb-1" : "top-full mt-1")}>
           {categories.map((cat) => (
             <div key={cat.label}>
               <div className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground/50 px-3 py-1">{cat.label}</div>
@@ -1257,9 +1334,10 @@ function AddWidgetDropdown({ available, registry, onAdd }) {
 // ─── MAIN ANALYSIS PAGE ──────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function AnalysisPage({ log, vars, fields, viewId, savedComparisons, onContinueSession, onError, onExportCsv }) {
+export default function AnalysisPage({ log, vars, fields, viewId, savedComparisons, onContinueSession, onError, onExportCsv, readOnly, sharedComparison }) {
   // ─── Session selection state ────────────────────────────────────────────────
   const [slots, setSlots] = useState(() => {
+    if (sharedComparison?.slots?.length) return sharedComparison.slots;
     if (viewId) return [{ id: viewId, color: PALETTE[0] }];
     return [];
   });
@@ -1272,16 +1350,20 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   }, [viewId]);
 
   // ─── Layout state ──────────────────────────────────────────────────────────
-  const [layoutItems, setLayoutItems] = useState(null); // null = auto
-  const [widgetOpts, setWidgetOpts] = useState({ showGrid: true });
-  const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
-  const [analysisTitle, setAnalysisTitle] = useState("");
+  const [layoutItems, setLayoutItems] = useState(() => sharedComparison?.widgets?.length ? sharedComparison.widgets : null);
+  const [widgetOpts, setWidgetOpts] = useState(() => sharedComparison?.by ? { showGrid: true, ...sharedComparison.by } : { showGrid: true });
+  const [newlyAdded, setNewlyAdded] = useState(new Set());
+  const [hiddenMetrics, setHiddenMetrics] = useState(() => sharedComparison?.metrics?.length ? new Set(sharedComparison.metrics) : new Set());
+  const [analysisTitle, setAnalysisTitle] = useState(sharedComparison?.title || "");
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(true);
   const exportRef = useRef();
 
   // ─── Saved analyses ───────────────────────────────────────────────────────
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [loadMenuOpen, setLoadMenuOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved"
+  const [lastSavedId, setLastSavedId] = useState(null);
+  const [lastShareToken, setLastShareToken] = useState(null);
   const loadRef = useRef();
 
   // Fetch saved analyses on mount
@@ -1336,6 +1418,8 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
         by: widgetOpts,
       });
       setSavedAnalyses((prev) => [saved, ...prev]);
+      setLastSavedId(saved.id);
+      setLastShareToken(null);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(null), 2000);
     } catch (err) {
@@ -1348,6 +1432,8 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     setLoadMenuOpen(false);
     if (analysis.slots) setSlots(analysis.slots);
     if (analysis.title) setAnalysisTitle(analysis.title);
+    setLastSavedId(analysis.id);
+    setLastShareToken(analysis.share_token || null);
     if (analysis.widgets?.length) setLayoutItems(analysis.widgets);
     if (analysis.by) setWidgetOpts(analysis.by);
     if (analysis.metrics?.length) setHiddenMetrics(new Set(analysis.metrics));
@@ -1374,10 +1460,26 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
       return items.map((item) => (item.key === key ? { ...item, span: item.span === "full" ? "half" : "full" } : item));
     });
   }, [activeLayout]);
-  const handleAddWidget = useCallback((key, defaultSpan) => {
+  const handleAddWidget = useCallback((key) => {
+    setNewlyAdded((prev) => new Set([...prev, key]));
     setLayoutItems((prev) => {
       const items = prev || [...activeLayout];
-      return [{ key, span: defaultSpan || "half" }, ...items];
+      const first = items[0];
+      const second = items[1];
+      const firstIsLonelyHalf = first?.span === "half" && second?.span !== "half";
+      const span = firstIsLonelyHalf ? "half" : "full";
+      return [{ key, span }, ...items];
+    });
+  }, [activeLayout]);
+  const handleAddWidgetBottom = useCallback((key) => {
+    setNewlyAdded((prev) => new Set([...prev, key]));
+    setLayoutItems((prev) => {
+      const items = prev || [...activeLayout];
+      const last = items[items.length - 1];
+      const secondLast = items[items.length - 2];
+      const lastIsLonelyHalf = last?.span === "half" && secondLast?.span !== "half";
+      const span = lastIsLonelyHalf ? "half" : "full";
+      return [...items, { key, span }];
     });
   }, [activeLayout]);
   const handleResetLayout = useCallback(() => setLayoutItems(null), []);
@@ -1386,13 +1488,16 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     const el = exportRef.current;
     if (!el) return;
     try {
+      el.classList.add("exporting");
       const dataUrl = await toPng(el, { backgroundColor: "#f7f7fa", pixelRatio: 2 });
+      el.classList.remove("exporting");
       const a = document.createElement("a");
       const name = analysisTitle || "analysis";
       a.download = `${name.replace(/[^a-zA-Z0-9-_ ]/g, "")}-${Date.now()}.png`;
       a.href = dataUrl;
       a.click();
     } catch (err) {
+      el.classList.remove("exporting");
       onError?.("Export failed: " + err.message);
     }
   }, [analysisTitle, onError]);
@@ -1412,15 +1517,27 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     });
   }, []);
 
+  // Clear newly-added flag for a widget once it's rendered
+  const clearNewlyAdded = useCallback((key) => {
+    setNewlyAdded((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
   // ─── Widget renderer ───────────────────────────────────────────────────────
   const renderWidget = useCallback((key) => {
     if (!resolved.length) return <div className="text-muted-foreground text-sm">No sessions selected</div>;
 
+    const isNew = newlyAdded.has(key);
+
     if (key === "dispersion") return <DispersionWidget resolved={resolved} mode={mode} opts={widgetOpts} toggleOpt={toggleOpt} />;
-    if (key === "metricsSummary") return <MetricsSummaryWidget resolved={resolved} mode={mode} opts={widgetOpts} toggleOpt={toggleOpt} hiddenMetrics={hiddenMetrics} onToggleMetric={toggleHiddenMetric} />;
+    if (key === "metricsSummary") return <MetricsSummaryWidget resolved={resolved} mode={mode} opts={widgetOpts} toggleOpt={toggleOpt} hiddenMetrics={hiddenMetrics} onToggleMetric={toggleHiddenMetric} initiallyEditing={isNew} onEditingShown={() => clearNewlyAdded(key)} />;
     if (key === "shotTable") return <ShotTableWidget resolved={resolved} mode={mode} commonFields={commonFields} />;
     if (key === "attachments") return <AttachmentsWidget resolved={resolved} mode={mode} onError={onError} />;
-    if (key === "customRankings") return <CustomRankingsWidget resolved={resolved} mode={mode} />;
+    if (key === "customRankings") return <CustomRankingsWidget resolved={resolved} mode={mode} initiallyEditing={isNew} onEditingShown={() => clearNewlyAdded(key)} />;
     if (key === "correlationScatter") return <CorrelationScatterWidget resolved={resolved} mode={mode} allFields={allFields} />;
 
     // Dynamic single-metric ranking widgets
@@ -1436,103 +1553,135 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
     }
 
     return <div className="text-muted-foreground text-sm">Unknown widget: {key}</div>;
-  }, [resolved, mode, widgetOpts, toggleOpt, hiddenMetrics, toggleHiddenMetric, commonFields, allFields, registry, onError]);
+  }, [resolved, mode, widgetOpts, toggleOpt, hiddenMetrics, toggleHiddenMetric, commonFields, allFields, registry, onError, newlyAdded, clearNewlyAdded]);
 
   // ─── Session header info ───────────────────────────────────────────────────
   const primarySession = resolved[0]?.session;
   const cfgLine = primarySession ? vars.map((v) => primarySession.config[v.key]).filter(Boolean).join("  \u00b7  ") : "";
 
-  if (!resolved.length) {
-    return (
-      <div className="text-center py-16">
-        <div className="text-muted-foreground text-lg mb-4">Select a session to analyze</div>
-        <SessionPicker slots={slots} setSlots={setSlots} log={log} vars={vars} />
-      </div>
-    );
-  }
+  const hasData = resolved.length > 0;
 
   return (
-    <div ref={exportRef}>
-      {/* Session header */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
-        <div className="px-6 py-4 flex items-center justify-between" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
-          <div className="flex-1 min-w-0">
+    <div>
+      {/* Session bar — full width, chips left, actions right */}
+      <div className="mb-3 border border-border rounded-lg bg-secondary/40 px-4 py-2.5">
+        {sessionPickerOpen
+          ? <SessionPicker slots={slots} setSlots={setSlots} log={log} vars={vars} onSlotsChange={() => setAnalysisTitle("")} readOnly={readOnly} />
+          : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground/60">Sessions ({slots.length})</span>
+              <div className="flex-1" />
+            </div>
+          )
+        }
+        <button onClick={() => setSessionPickerOpen((o) => !o)}
+          className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors mt-1">
+          {sessionPickerOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          {sessionPickerOpen ? "Hide" : "Show"}
+        </button>
+      </div>
+
+      {/* Toolbar — Add/Reset left, Save/Load/Export right */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <AddWidgetDropdown available={available} registry={registry} onAdd={handleAddWidget} />
+        {layoutItems && (
+          <button onClick={handleResetLayout}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-foreground/70 text-xs font-semibold cursor-pointer hover:text-foreground transition-colors">
+            <RotateCcw size={11} /> Reset Layout
+          </button>
+        )}
+        {!readOnly && mode === "single" && primarySession && (
+          <button onClick={() => onContinueSession?.(primarySession.id)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
+            Edit Session
+          </button>
+        )}
+        <div className="flex-1" />
+        {!readOnly && (
+          <>
+            <button onClick={handleSaveAnalysis} disabled={saveStatus === "saving"}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border-2 text-sm font-bold cursor-pointer transition-colors disabled:opacity-50"
+              style={{ borderColor: G, color: "#111118", background: G + "25" }}>
+              <Save size={13} /> {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved!" : "Save Analysis"}
+            </button>
+            <div className="relative" ref={loadRef}>
+              <button onClick={() => setLoadMenuOpen((o) => !o)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
+                <FolderOpen size={13} /> Load
+              </button>
+              {loadMenuOpen && (
+                <div className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-2 min-w-[220px] max-h-[280px] overflow-auto">
+                  {savedAnalyses.length === 0 ? (
+                    <div className="text-muted-foreground text-xs py-2 px-3 text-center">No saved analyses</div>
+                  ) : savedAnalyses.map((a) => (
+                    <div key={a.id}
+                      onClick={() => handleLoadAnalysis(a)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-accent/40 transition-colors group">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-foreground truncate">{a.title || a.name}</div>
+                        <div className="text-[10px] text-muted-foreground">{a.slots?.length || 0} session{(a.slots?.length || 0) !== 1 ? "s" : ""}</div>
+                      </div>
+                      <button onClick={(e) => handleDeleteAnalysis(a.id, e)}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none p-0.5 transition-all">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        <button onClick={() => onExportCsv?.()}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
+          Export CSV
+        </button>
+        <button onClick={handleExportPng}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
+          <Download size={13} /> Export PNG
+        </button>
+        {!readOnly && lastSavedId && (
+          <ShareButton
+            comparisonId={lastSavedId}
+            existingToken={lastShareToken}
+            onTokenGenerated={(id, token) => setLastShareToken(token)}
+            onError={onError}
+          />
+        )}
+      </div>
+
+      {/* Export capture area — bordered preview of what PNG export will contain */}
+      <div ref={exportRef} className="border-2 border-border rounded-xl overflow-hidden">
+
+      {/* Session header — spans full width of export border */}
+      <div className="px-6 py-5 flex items-center gap-4" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
+        <div className="flex-1 min-w-0 text-center">
+          {readOnly ? (
+            <div className="text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>
+              {analysisTitle || (mode === "multi" ? "Comparison" : primarySession?.config?.sessionName || "Unnamed Session")}
+            </div>
+          ) : (
             <input
               type="text"
               value={analysisTitle}
               onChange={(e) => setAnalysisTitle(e.target.value)}
-              placeholder={mode === "multi" ? "Comparison" : primarySession.config.sessionName || "Unnamed Session"}
-              className="text-lg font-bold text-foreground bg-transparent border-none outline-none w-full placeholder:text-foreground/60"
+              placeholder={mode === "multi" ? "Comparison" : primarySession?.config?.sessionName || "Unnamed Session"}
+              className="text-3xl font-bold bg-transparent border-none outline-none w-full text-center placeholder:text-white/40"
+              style={{ color: "#f0f0f8", caretColor: G }}
             />
-            {cfgLine && <div className="text-xs text-muted-foreground mt-1">{cfgLine}</div>}
-          </div>
-          <div className="text-right shrink-0 ml-4">
-            <div className="text-3xl font-black tabular-nums" style={{ color: G }}>
-              {resolved.reduce((sum, r) => sum + r.shots.length, 0)}
-            </div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">shots</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Session picker */}
-      <SessionPicker slots={slots} setSlots={setSlots} log={log} vars={vars} />
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {mode === "single" && primarySession && (
-          <button onClick={() => onContinueSession?.(primarySession.id)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
-            Edit Session
-          </button>
-        )}
-        <button onClick={() => onExportCsv?.()}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
-          Export CSV
-        </button>
-        <button onClick={handleExportPng}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
-          <Download size={11} /> Export PNG
-        </button>
-        <button onClick={handleSaveAnalysis} disabled={saveStatus === "saving"}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-medium cursor-pointer hover:bg-primary/20 transition-colors disabled:opacity-50">
-          <Save size={11} /> {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved!" : "Save Analysis"}
-        </button>
-        <div className="relative" ref={loadRef}>
-          <button onClick={() => setLoadMenuOpen((o) => !o)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
-            <FolderOpen size={11} /> Load
-          </button>
-          {loadMenuOpen && (
-            <div className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-2 min-w-[220px] max-h-[280px] overflow-auto">
-              {savedAnalyses.length === 0 ? (
-                <div className="text-muted-foreground text-xs py-2 px-3 text-center">No saved analyses</div>
-              ) : savedAnalyses.map((a) => (
-                <div key={a.id}
-                  onClick={() => handleLoadAnalysis(a)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-accent/40 transition-colors group">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-foreground truncate">{a.title || a.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{a.slots?.length || 0} session{(a.slots?.length || 0) !== 1 ? "s" : ""}</div>
-                  </div>
-                  <button onClick={(e) => handleDeleteAnalysis(a.id, e)}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none p-0.5 transition-all">
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
           )}
+          {cfgLine && <div className="text-xs mt-1.5 truncate" style={{ color: "#e0e0e8" }}>{cfgLine}</div>}
         </div>
-        <div className="flex-1" />
-        <AddWidgetDropdown available={available} registry={registry} onAdd={handleAddWidget} />
-        {layoutItems && (
-          <button onClick={handleResetLayout}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-medium cursor-pointer hover:text-foreground transition-colors">
-            <RotateCcw size={11} /> Reset Layout
-          </button>
-        )}
+        <div className="text-right shrink-0">
+          <div className="text-3xl font-black tabular-nums" style={{ color: G }}>
+            {resolved.reduce((sum, r) => sum + r.shots.length, 0)}
+          </div>
+          <div className="text-[10px] uppercase tracking-wide" style={{ color: "#e0e0e8" }}>shots</div>
+        </div>
       </div>
+
+      {/* Widget content area */}
+      <div className="p-4">
 
       {/* Widget grid */}
       <WidgetGrid
@@ -1543,6 +1692,14 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
         registry={registry}
         renderWidget={renderWidget}
       />
+
+      </div>{/* end widget content area */}
+      </div>{/* end export capture area */}
+
+      {/* Add widget to bottom — outside export border so dropdown isn't clipped */}
+      <div className="flex items-center gap-2 mt-3">
+        <AddWidgetDropdown available={available} registry={registry} onAdd={handleAddWidgetBottom} dropUp />
+      </div>
     </div>
   );
 }

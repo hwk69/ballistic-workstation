@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useScroll } from "@/components/use-scroll";
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS as dndCSS } from '@dnd-kit/utilities';
-import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown } from 'lucide-react';
+import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown, ChevronUp, Save, FolderOpen, Download, Trash2 } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget, ShotCarousel } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
@@ -14,6 +14,8 @@ import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
 import { toPng } from 'html-to-image';
 import AnalysisPage from './analysis/AnalysisPage.jsx';
+import SessionPicker from './analysis/SessionPicker.jsx';
+import { ShareButton } from './components/ShareButton.jsx';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G    = "#FFDF00";
@@ -1849,9 +1851,15 @@ function AppNavBar({ phase, navItems, sessionCount }) {
   );
 }
 
-function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, dbError, onDismissError }) {
+function AppShell({ phase, navItems, sessionCount, maxW = "1060px", children, dbError, onDismissError, viewerMode }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className={cn("min-h-screen bg-background text-foreground", viewerMode && "pt-8")}>
+      {viewerMode && (
+        <div className="fixed top-0 left-0 right-0 z-[500] text-center text-xs font-bold py-1.5 tracking-wide select-none"
+          style={{ background: "#FFDF00", color: "#111118" }}>
+          VIEW ONLY — Shared link
+        </div>
+      )}
       <AppNavBar phase={phase} navItems={navItems} sessionCount={sessionCount} />
       <main className="px-4 pt-5 pb-10 sm:px-7 sm:pt-10 sm:pb-15" style={{ maxWidth: maxW, margin: "0 auto" }}>
         {children}
@@ -1885,6 +1893,8 @@ export default function App() {
   const up = (k, v) => setCfg(p => ({ ...p, [k]: v }));
   const [shots, setShots]   = useState([]);
   const [cur, setCur]       = useState(() => Object.fromEntries(fields.map(f => [f.key, ""])));
+  const [shotNotes, setShotNotes] = useState("");
+  const shotFileRef = useRef();
   const [editIdx, setEditIdx] = useState(null);
   const [editVal, setEditVal] = useState({});
   const [layout, setLayout] = useState(DEF_LAYOUT);
@@ -1904,6 +1914,9 @@ export default function App() {
   const [histSort, setHistSort] = useState("newest");
   const [widgetSizes, setWidgetSizes] = useState({});
   const [authed, setAuthed] = useState(false);
+  const [viewerMode, setViewerMode] = useState(false);
+  const [shareToken, setShareToken] = useState(null);
+  const [sharedComparisonData, setSharedComparisonData] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [dbError, setDbError] = useState(null);
   const [libraryFilterSessionIds, setLibraryFilterSessionIds] = useState(null);
@@ -1911,6 +1924,29 @@ export default function App() {
   const [matrixColVar, setMatrixColVar] = useState(null);
   const [matrixMetric, setMatrixMetric] = useState(null);
   const [matrixDetail, setMatrixDetail] = useState(null);
+  const [matrixSlots, setMatrixSlots] = useState([]);
+  const [matrixTitle, setMatrixTitle] = useState("");
+  const [matrixPickerOpen, setMatrixPickerOpen] = useState(true);
+  const [matrixSaveStatus, setMatrixSaveStatus] = useState(null);
+  const [matrixLastSavedId, setMatrixLastSavedId] = useState(null);
+  const [matrixLastShareToken, setMatrixLastShareToken] = useState(null);
+  const [savedMatrices, setSavedMatrices] = useState([]);
+  const [matrixLoadMenuOpen, setMatrixLoadMenuOpen] = useState(false);
+  const matrixExportRef = useRef();
+  const matrixLoadRef = useRef();
+
+  // Close matrix load menu on outside click
+  useEffect(() => {
+    if (!matrixLoadMenuOpen) return;
+    const handler = (e) => { if (matrixLoadRef.current && !matrixLoadRef.current.contains(e.target)) setMatrixLoadMenuOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [matrixLoadMenuOpen]);
+
+  // Fetch saved matrices on mount
+  useEffect(() => {
+    db.getComparisons().then(all => setSavedMatrices(all.filter(a => a.by?.type === "matrix"))).catch(() => {});
+  }, []);
   const [pendingAttachments, setPendingAttachments] = useState({}); // { serial: File[] }
   const queueAttachment = useCallback((serial, files) => {
     setPendingAttachments(p => ({ ...p, [serial]: [...(p[serial] || []), ...files] }));
@@ -1973,6 +2009,85 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
+        // Check for share link first
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('share');
+
+        if (token) {
+          setShareToken(token);
+          setViewerMode(true);
+          const shared = await db.getSharedData(token);
+
+          // Parse sessions from raw RPC data (same shape as getSessions)
+          const rawSessions = shared.sessions || [];
+          const rawShots = shared.shots || [];
+          const sessions = rawSessions.map(s => ({
+            id: s.id,
+            date: s.created_at,
+            config: s.config,
+            shots: rawShots
+              .filter(sh => sh.session_id === s.id)
+              .sort((a, b) => (a.shot_num || 0) - (b.shot_num || 0))
+              .map(sh => ({
+                id: sh.id, fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight,
+                serial: sh.serial, shotNum: sh.shot_num, timestamp: sh.timestamp,
+                data: sh.data || { fps: sh.fps, x: sh.x, y: sh.y, weight: sh.weight },
+              })),
+          }));
+
+          // Apply settings
+          const settings = shared.settings || {};
+          if (settings.vars?.length) setVars(settings.vars);
+          if (settings.fields?.length) setFields(settings.fields);
+          if (settings.opts && Object.keys(settings.opts).length) {
+            setOpts(p => {
+              const merged = { ...p };
+              Object.entries(settings.opts).forEach(([k, v]) => {
+                if (Array.isArray(v) && v.length) merged[k] = v;
+              });
+              return merged;
+            });
+          }
+
+          // Build log with stats
+          setLog(sessions.map(s => ({
+            ...s,
+            config: { ...s.config, fields: s.config.fields || DEFAULT_FIELDS },
+            stats: calcStats(s.shots, s.config.fields),
+          })));
+
+          setHasAttachments((shared.attachments || []).length > 0);
+
+          // Load the specific comparison
+          const comp = shared.comparison;
+          const compData = comp.data || {};
+          if (compData.by?.type === "matrix") {
+            if (compData.slots) setMatrixSlots(compData.slots);
+            if (comp.title) setMatrixTitle(comp.title);
+            if (compData.by?.rowVar) setMatrixRowVar(compData.by.rowVar);
+            if (compData.by?.colVar) setMatrixColVar(compData.by.colVar);
+            if (compData.by?.metric) setMatrixMetric(compData.by.metric);
+            setPhase(P.MATRIX);
+          } else {
+            // Analysis share — store full comparison data for AnalysisPage
+            setSharedComparisonData({
+              title: comp.title,
+              slots: compData.slots,
+              widgets: compData.widgets,
+              metrics: compData.metrics,
+              by: compData.by,
+            });
+            const firstSlotId = compData.slots?.[0]?.id || null;
+            if (firstSlotId) setViewId(firstSlotId);
+            setPhase(P.ANALYSIS);
+          }
+
+          setAuthed(true);
+          setAuthChecked(true);
+          return;
+        }
+
+        // Normal auth flow
         const session = await db.getSession();
         if (session) {
           setAuthed(true);
@@ -2190,18 +2305,30 @@ export default function App() {
         data[f.key] = v || null;
       }
     }
+    // Include notes in data if present
+    if (shotNotes.trim()) data.notes = shotNotes.trim();
     // Build shot with legacy fields for backwards compat
+    const serial = makeSerial(cfg, shots.length + 1, existingCount);
     const shot = {
       fps: data.fps ?? null,
       x: data.x ?? null,
       y: data.y ?? null,
       weight: data.weight ?? cur.weight ?? null,
       data,
-      serial: makeSerial(cfg, shots.length + 1, existingCount),
+      serial,
       shotNum: shots.length + 1,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setShots(p => [...p, shot]);
+    // Queue any staged attachments for this shot
+    const stagedFiles = pendingAttachments[`_next_${shots.length}`];
+    if (stagedFiles?.length) {
+      setPendingAttachments(p => {
+        const next = { ...p, [serial]: [...(p[serial] || []), ...stagedFiles] };
+        delete next[`_next_${shots.length}`];
+        return next;
+      });
+    }
     // On first shot of a new session, save to DB so auto-save can take over
     if (!continuingSessionId && shots.length === 0) {
       (async () => {
@@ -2238,13 +2365,15 @@ export default function App() {
       }
       return next;
     });
+    setShotNotes("");
     setTimeout(() => fpsRef.current?.focus(), 50);
-  }, [cur, shots, cfg, existingCount, fields, continuingSessionId, vars, pendingAttachments]);
+  }, [cur, shots, cfg, existingCount, fields, continuingSessionId, vars, pendingAttachments, shotNotes]);
   const handleKey = useCallback(e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addShot(); } }, [addShot]);
   const startEdit = i => {
     const s = shots[i]; const d = s.data || {};
     const merged = {};
     for (const f of (cfg.fields || fields)) { const v = d[f.key] ?? s[f.key]; merged[f.key] = v !== null && v !== undefined ? (f.type === "yesno" ? (v === true ? "yes" : v === false ? "no" : "") : String(v)) : ""; }
+    merged._notes = d.notes || s.notes || "";
     setEditIdx(i); setEditVal(merged);
   };
   const saveEdit = () => {
@@ -2266,10 +2395,12 @@ export default function App() {
         parsed[f.key] = raw || null;
       }
     }
-    const data = { ...((shots[editIdx] || {}).data || {}), ...parsed };
+    const notesVal = (editVal._notes || "").trim();
+    const data = { ...((shots[editIdx] || {}).data || {}), ...parsed, notes: notesVal || null };
     setShots(p => p.map((s, i) => i === editIdx ? {
       ...s, ...parsed,
       fps: parsed.fps ?? s.fps, x: parsed.x ?? s.x, y: parsed.y ?? s.y, weight: parsed.weight ?? s.weight,
+      notes: notesVal || null,
       data,
     } : s));
     setEditIdx(null);
@@ -2320,10 +2451,17 @@ export default function App() {
     { label: "Setup",    ph: P.SETUP,    onClick: newSession },
     { label: "Fire",     ph: P.FIRE,     disabled: phase !== P.FIRE && !continuingSessionId, onClick: () => { if (continuingSessionId) setPhase(P.FIRE); } },
     { label: "Analysis", ph: P.ANALYSIS, disabled: !viewId && log.length === 0, onClick: () => setPhase(P.ANALYSIS) },
+    { label: "Matrix",   ph: P.MATRIX,   disabled: log.length === 0, onClick: () => { setMatrixSlots([]); setMatrixTitle(""); setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setMatrixPickerOpen(true); setPhase(P.MATRIX); } },
     { label: "History",  ph: P.HISTORY,  onClick: () => setPhase(P.HISTORY) },
-    { label: "Matrix",   ph: P.MATRIX,   disabled: log.length < 2, onClick: () => { setMatrixRowVar(null); setMatrixColVar(null); setMatrixMetric(null); setMatrixDetail(null); setPhase(P.MATRIX); } },
     { label: "Library",  ph: P.LIBRARY,  onClick: () => { setLibraryFilterSessionIds(null); setPhase(P.LIBRARY); } },
   ];
+
+  // In viewer mode, only show Analysis, Matrix, History, Library
+  const activeNavItems = viewerMode
+    ? navItems
+        .filter(item => [P.ANALYSIS, P.MATRIX, P.HISTORY, P.LIBRARY].includes(item.ph))
+        .map(item => ({ ...item, disabled: false }))
+    : navItems;
 
 
   if (!authChecked) return (
@@ -2332,13 +2470,13 @@ export default function App() {
     </div>
   );
 
-  if (!authed) return (
+  if (!authed && !viewerMode) return (
     <LoginScreen onLogin={() => { setAuthed(true); loadAllData(); }} />
   );
 
   // ─── SETUP ──────────────────────────────────────────────────────────────────
   if (phase === P.SETUP) return (
-    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="720px">
+    <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="720px">
       <PageHead title="New Session" sub="Configure variables, then fire and analyze" />
 
       <CardSection title="Configuration" className="mb-4">
@@ -2437,7 +2575,7 @@ export default function App() {
 
   // ─── FIRE ───────────────────────────────────────────────────────────────────
   if (phase === P.FIRE) return (
-    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1040px">
+    <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1040px">
       {/* Session header row */}
       <div className="flex items-start justify-between mb-7 gap-6">
         <div>
@@ -2569,6 +2707,32 @@ export default function App() {
             </div>
           ))}
         </div>
+        {/* Notes + Attachments row */}
+        <div className="flex gap-3 mb-4 items-end">
+          <div className="flex-1">
+            <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</label>
+            <input type="text" value={shotNotes} onChange={e => setShotNotes(e.target.value)}
+              placeholder="Optional notes for this shot..."
+              className={inp} />
+          </div>
+          <div className="shrink-0">
+            <input ref={shotFileRef} type="file" multiple accept="image/*,video/*,.pdf" style={{ display: "none" }}
+              onChange={e => {
+                const files = Array.from(e.target.files);
+                if (!files.length) return;
+                e.target.value = "";
+                const key = `_next_${shots.length}`;
+                setPendingAttachments(p => ({ ...p, [key]: [...(p[key] || []), ...files] }));
+              }} />
+            <button onClick={() => shotFileRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-secondary text-muted-foreground text-xs font-semibold cursor-pointer hover:text-foreground transition-colors">
+              <Paperclip size={12} />
+              Attach{(pendingAttachments[`_next_${shots.length}`]?.length || 0) > 0
+                ? ` (${pendingAttachments[`_next_${shots.length}`].length})`
+                : ""}
+            </button>
+          </div>
+        </div>
         <div className="flex gap-2">
           <Btn onClick={addShot} disabled={(!continuingSessionId && shots.length >= total) || (cfg.fields || fields).some(f => f.required && (cur[f.key] === "" || cur[f.key] === undefined || cur[f.key] === null))}>Record</Btn>
           <Btn v="secondary" onClick={finishSession} disabled={!continuingSessionId || saveStatus === "saving"}>View Results →</Btn>
@@ -2637,6 +2801,7 @@ export default function App() {
                           f.type === "number" ? "text-right" : "text-left"
                         )}>{f.label}</th>
                       ))}
+                      <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Notes</th>
                       <th className="text-muted-foreground font-semibold uppercase text-[10px] tracking-wide px-2 py-1.5 text-left">Time</th>
                       <th className="px-2 py-1.5" />
                       <th className="px-2 py-1.5" />
@@ -2654,6 +2819,9 @@ export default function App() {
                                 <TblInput value={editVal[f.key] ?? ""} onChange={e => setEditVal(p => ({ ...p, [f.key]: e.target.value }))} />
                               </td>
                             ))}
+                            <td className="px-1.5 py-1">
+                              <TblInput value={editVal._notes ?? ""} onChange={e => setEditVal(p => ({ ...p, _notes: e.target.value }))} />
+                            </td>
                             <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
                             <td className="px-2 py-1.5">
                               <ShotAttachBtn
@@ -2686,6 +2854,7 @@ export default function App() {
                                 )}>{display}</td>
                               );
                             })}
+                            <td className="text-muted-foreground px-2 py-1.5 text-xs max-w-[150px] truncate" title={(s.data || s).notes || ""}>{(s.data || s).notes || ""}</td>
                             <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
                             <td className="px-2 py-1.5">
                               <ShotAttachBtn
@@ -2718,7 +2887,7 @@ export default function App() {
   // ─── ANALYSIS (unified Results + Compare) ───────────────────────────────────
   if (phase === P.ANALYSIS) {
     return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+      <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1200px">
         <AnalysisPage
           log={log}
           vars={vars}
@@ -2728,6 +2897,8 @@ export default function App() {
           onContinueSession={continueSession}
           onError={setDbError}
           onExportCsv={() => exportMasterCsv(log, vars)}
+          readOnly={viewerMode}
+          sharedComparison={sharedComparisonData}
         />
       </AppShell>
     );
@@ -2749,7 +2920,7 @@ export default function App() {
     const st = s.stats;
     const cfgLine = vars.map(v => s.config[v.key]).filter(Boolean).join("  ·  ");
     return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
+      <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1100px">
         {/* Toolbar */}
         <div className="flex justify-end items-center mb-6 flex-wrap gap-2">
           <Btn v="secondary" onClick={() => continueSession(s.id)}>Edit</Btn>
@@ -3123,7 +3294,7 @@ export default function App() {
     }
 
     return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1100px">
+      <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1100px">
         {/* Toolbar */}
         <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
@@ -3321,13 +3492,17 @@ export default function App() {
 
   // ─── MATRIX COMPARE ──────────────────────────────────────────────────────────
   if (phase === P.MATRIX) {
-    // Build the grid data
+    // Resolve selected sessions from slots
+    const matrixResolved = matrixSlots.map(sl => log.find(s => s.id === sl.id)).filter(Boolean);
+    const hasMatrixData = matrixResolved.length > 0;
+
+    // Build the grid data from selected sessions
     const matrixVarOptions = vars.map(v => ({ key: v.key, label: v.label }));
     const rowVar = matrixRowVar || matrixVarOptions[0]?.key;
     const colVar = matrixColVar || matrixVarOptions.find(v => v.key !== rowVar)?.key;
 
-    // Collect all sessions that have both variables set
-    const matrixSessions = log.filter(s => s.config[rowVar] && s.config[colVar]);
+    // Collect sessions that have both variables set
+    const matrixSessions = matrixResolved.filter(s => s.config[rowVar] && s.config[colVar]);
 
     // Extract unique row/column values
     const smartSort = (a, b) => {
@@ -3439,35 +3614,219 @@ export default function App() {
       return val.toFixed(dec) + (unit ? " " + unit : "");
     };
 
-    return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
-        <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-6">Matrix Compare</h1>
+    // Total shot count across selected sessions
+    const matrixShotCount = matrixResolved.reduce((sum, s) => sum + (s.shots?.length || 0), 0);
 
-        {/* Axis Picker */}
-        <div className="flex flex-wrap gap-4 mb-6 items-end">
-          <div>
-            <SecLabel className="mb-1.5">Row Variable</SecLabel>
-            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={rowVar || ""} onChange={e => { setMatrixRowVar(e.target.value); setMatrixDetail(null); }}>
-              {matrixVarOptions.map(v => <option key={v.key} value={v.key} disabled={v.key === colVar}>{v.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <SecLabel className="mb-1.5">Column Variable</SecLabel>
-            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={colVar || ""} onChange={e => { setMatrixColVar(e.target.value); setMatrixDetail(null); }}>
-              {matrixVarOptions.filter(v => v.key !== rowVar).map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <SecLabel className="mb-1.5">Metric</SecLabel>
-            <select className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground" value={selMetric || ""} onChange={e => { setMatrixMetric(e.target.value); setMatrixDetail(null); }}>
-              {metricOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </select>
-          </div>
+    // Save matrix handler
+    const handleSaveMatrix = async () => {
+      const title = matrixTitle || "Matrix";
+      setMatrixSaveStatus("saving");
+      try {
+        const saved = await db.saveComparison({
+          title,
+          slots: matrixSlots,
+          widgets: [],
+          metrics: [],
+          by: { type: "matrix", rowVar: matrixRowVar, colVar: matrixColVar, metric: matrixMetric },
+        });
+        setSavedMatrices(prev => [saved, ...prev]);
+        setMatrixLastSavedId(saved.id);
+        setMatrixLastShareToken(null);
+        setMatrixSaveStatus("saved");
+        setTimeout(() => setMatrixSaveStatus(null), 2000);
+      } catch (err) {
+        setDbError("Save failed: " + err.message);
+        setMatrixSaveStatus(null);
+      }
+    };
+
+    // Load matrix handler
+    const handleLoadMatrix = (m) => {
+      setMatrixLoadMenuOpen(false);
+      if (m.slots) setMatrixSlots(m.slots);
+      if (m.title) setMatrixTitle(m.title);
+      if (m.by?.rowVar) setMatrixRowVar(m.by.rowVar);
+      if (m.by?.colVar) setMatrixColVar(m.by.colVar);
+      if (m.by?.metric) setMatrixMetric(m.by.metric);
+      setMatrixLastSavedId(m.id);
+      setMatrixLastShareToken(m.share_token || null);
+      setMatrixDetail(null);
+    };
+
+    // Delete matrix handler
+    const handleDeleteMatrix = async (id, e) => {
+      e.stopPropagation();
+      try {
+        await db.deleteComparison(id);
+        setSavedMatrices(prev => prev.filter(m => m.id !== id));
+      } catch (err) {
+        setDbError("Delete failed: " + err.message);
+      }
+    };
+
+    // Export PNG handler
+    const handleMatrixExportPng = async () => {
+      const el = matrixExportRef.current;
+      if (!el) return;
+      try {
+        el.classList.add("exporting");
+        const dataUrl = await toPng(el, { backgroundColor: "#f7f7fa", pixelRatio: 2 });
+        el.classList.remove("exporting");
+        const a = document.createElement("a");
+        const name = matrixTitle || "matrix";
+        a.download = `${name.replace(/[^a-zA-Z0-9-_ ]/g, "")}-${Date.now()}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (err) {
+        el.classList.remove("exporting");
+        setDbError("Export failed: " + err.message);
+      }
+    };
+
+    // Close load menu on outside click
+    const matrixLoadMenuRef = matrixLoadRef;
+
+    return (
+      <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1200px">
+
+        {/* Session picker bar */}
+        <div className="mb-3 border border-border rounded-lg bg-secondary/40 px-4 py-2.5">
+          {matrixPickerOpen
+            ? <SessionPicker slots={matrixSlots} setSlots={setMatrixSlots} log={log} vars={vars} onSlotsChange={() => setMatrixTitle("")} readOnly={viewerMode} />
+            : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-foreground/60">Sessions ({matrixSlots.length})</span>
+                <div className="flex-1" />
+              </div>
+            )
+          }
+          <button onClick={() => setMatrixPickerOpen(o => !o)}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors mt-1">
+            {matrixPickerOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+            {matrixPickerOpen ? "Hide" : "Show"}
+          </button>
         </div>
 
-        {matrixSessions.length === 0 ? (
+        {/* Toolbar — Axis pickers left, Save/Load/Export right */}
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {hasMatrixData && (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Row</span>
+                <select className="export-hide bg-card border border-border rounded-md px-2 py-1 text-xs text-foreground" value={rowVar || ""} onChange={e => { setMatrixRowVar(e.target.value); setMatrixDetail(null); }}>
+                  {matrixVarOptions.map(v => <option key={v.key} value={v.key} disabled={v.key === colVar}>{v.label}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Col</span>
+                <select className="export-hide bg-card border border-border rounded-md px-2 py-1 text-xs text-foreground" value={colVar || ""} onChange={e => { setMatrixColVar(e.target.value); setMatrixDetail(null); }}>
+                  {matrixVarOptions.filter(v => v.key !== rowVar).map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Metric</span>
+                <select className="export-hide bg-card border border-border rounded-md px-2 py-1 text-xs text-foreground" value={selMetric || ""} onChange={e => { setMatrixMetric(e.target.value); setMatrixDetail(null); }}>
+                  {metricOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+          <div className="flex-1" />
+          {!viewerMode && (
+            <>
+              <button onClick={handleSaveMatrix} disabled={matrixSaveStatus === "saving" || !hasMatrixData}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border-2 text-sm font-bold cursor-pointer transition-colors disabled:opacity-50"
+                style={{ borderColor: G, color: "#111118", background: G + "25" }}>
+                <Save size={13} /> {matrixSaveStatus === "saving" ? "Saving..." : matrixSaveStatus === "saved" ? "Saved!" : "Save Matrix"}
+              </button>
+              <div className="relative" ref={matrixLoadMenuRef}>
+                <button onClick={() => { if (!savedMatrices.length) { db.getComparisons().then(all => { setSavedMatrices(all.filter(a => a.by?.type === "matrix")); setMatrixLoadMenuOpen(o => !o); }); } else { setMatrixLoadMenuOpen(o => !o); } }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors">
+                  <FolderOpen size={13} /> Load
+                </button>
+                {matrixLoadMenuOpen && (
+                  <div className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-2 min-w-[220px] max-h-[280px] overflow-auto">
+                    {savedMatrices.length === 0 ? (
+                      <div className="text-muted-foreground text-xs py-2 px-3 text-center">No saved matrices</div>
+                    ) : savedMatrices.map(m => (
+                      <div key={m.id}
+                        onClick={() => handleLoadMatrix(m)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-accent/40 transition-colors group">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-foreground truncate">{m.title || m.name}</div>
+                          <div className="text-[10px] text-muted-foreground">{m.slots?.length || 0} session{(m.slots?.length || 0) !== 1 ? "s" : ""}</div>
+                        </div>
+                        <button onClick={e => handleDeleteMatrix(m.id, e)}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive cursor-pointer bg-transparent border-none p-0.5 transition-all">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          <button onClick={handleMatrixExportPng} disabled={!hasMatrixData}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border bg-secondary text-foreground text-sm font-bold cursor-pointer hover:bg-accent/40 transition-colors disabled:opacity-50">
+            <Download size={13} /> Export PNG
+          </button>
+          {!viewerMode && matrixLastSavedId && (
+            <ShareButton
+              comparisonId={matrixLastSavedId}
+              existingToken={matrixLastShareToken}
+              onTokenGenerated={(id, token) => setMatrixLastShareToken(token)}
+              onError={setDbError}
+            />
+          )}
+        </div>
+
+        {/* Export capture area */}
+        <div ref={matrixExportRef} className="border-2 border-border rounded-xl overflow-hidden">
+
+          {/* Session header — dark banner like Analysis */}
+          <div className="px-6 py-5 flex items-center gap-4" style={{ background: "#111118", borderTop: `3px solid ${G}` }}>
+            <div className="flex-1 min-w-0 text-center">
+              {viewerMode ? (
+                <div className="text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>{matrixTitle || "Matrix Compare"}</div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={matrixTitle}
+                    onChange={e => setMatrixTitle(e.target.value)}
+                    placeholder="Matrix Compare"
+                    className="export-hide text-3xl font-bold bg-transparent border-none outline-none w-full text-center placeholder:text-white/40"
+                    style={{ color: "#f0f0f8", caretColor: G }}
+                  />
+                  {/* Static title shown only during export */}
+                  <div className="export-only text-3xl font-bold text-center" style={{ color: "#f0f0f8" }}>{matrixTitle || "Matrix Compare"}</div>
+                </>
+              )}
+              {hasMatrixData && metricDef && (
+                <div className="text-xs mt-1.5 truncate" style={{ color: "#e0e0e8" }}>
+                  {matrixVarOptions.find(v => v.key === rowVar)?.label} × {matrixVarOptions.find(v => v.key === colVar)?.label} — {metricDef.label}
+                </div>
+              )}
+            </div>
+            {hasMatrixData && (
+              <div className="text-right shrink-0">
+                <div className="text-3xl font-black tabular-nums" style={{ color: G }}>{matrixShotCount}</div>
+                <div className="text-[10px] uppercase tracking-wide" style={{ color: "#e0e0e8" }}>shots</div>
+              </div>
+            )}
+          </div>
+
+          {/* Content area */}
+          <div className="bg-background p-6">
+
+        {!hasMatrixData ? (
           <Empty icon={<span className="text-base">⊞</span>}>
-            <p className="text-sm text-muted-foreground">No sessions have both <strong>{matrixVarOptions.find(v => v.key === rowVar)?.label}</strong> and <strong>{matrixVarOptions.find(v => v.key === colVar)?.label}</strong> set.</p>
+            <p className="text-sm text-muted-foreground">Select sessions above to build a comparison matrix.</p>
+          </Empty>
+        ) : matrixSessions.length === 0 ? (
+          <Empty icon={<span className="text-base">⊞</span>}>
+            <p className="text-sm text-muted-foreground">No selected sessions have both <strong>{matrixVarOptions.find(v => v.key === rowVar)?.label}</strong> and <strong>{matrixVarOptions.find(v => v.key === colVar)?.label}</strong> set.</p>
           </Empty>
         ) : (
           <>
@@ -3611,13 +3970,16 @@ export default function App() {
             })()}
           </>
         )}
+
+          </div>{/* end content area */}
+        </div>{/* end export capture area */}
       </AppShell>
     );
   }
 
   // ─── LIBRARY ─────────────────────────────────────────────────────────────────
   if (phase === P.LIBRARY) return (
-    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="1200px">
+    <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="1200px">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight text-foreground mb-1">Attachment Library</h1>
@@ -3633,7 +3995,8 @@ export default function App() {
         log={log}
         vars={vars}
         preFilterSessionIds={libraryFilterSessionIds}
-        onError={setDbError} />
+        onError={setDbError}
+        readOnly={viewerMode} />
     </AppShell>
   );
 
@@ -3650,13 +4013,13 @@ export default function App() {
       });
 
     return (
-      <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} maxW="840px">
+      <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode} maxW="840px">
         <PageHead title="Session History" sub={`${log.length} session${log.length !== 1 ? "s" : ""} recorded`} />
         {!log.length ? (
           <Empty
             icon={<History size={18} />}
-            action={<Btn onClick={newSession}>Start First Session</Btn>}>
-            No sessions recorded yet. Configure your variables and start firing.
+            action={viewerMode ? null : <Btn onClick={newSession}>Start First Session</Btn>}>
+            {viewerMode ? "No sessions available." : "No sessions recorded yet. Configure your variables and start firing."}
           </Empty>
         ) : (
           <>
@@ -3730,9 +4093,9 @@ export default function App() {
                     {/* Actions */}
                     <div className="flex items-center shrink-0 border-l border-border h-full">
                       <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
-                      <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>
+                      {!viewerMode && <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>}
                       <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
-                      <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>
+                      {!viewerMode && <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>}
                     </div>
                   </div>
                 ))}
@@ -3741,8 +4104,12 @@ export default function App() {
           </>
         )}
         <div className="mt-6 pt-5 border-t border-border flex gap-2 flex-wrap">
-          <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
-          <Btn v="secondary" onClick={() => fileRef.current?.click()}>Import JSON</Btn>
+          {!viewerMode && (
+            <>
+              <input ref={fileRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+              <Btn v="secondary" onClick={() => fileRef.current?.click()}>Import JSON</Btn>
+            </>
+          )}
           {log.length > 0 && (<>
             <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
             <Btn v="secondary" onClick={() => exportJson(log)}>Export JSON</Btn>
@@ -3753,7 +4120,7 @@ export default function App() {
   }
 
   return (
-    <AppShell phase={phase} navItems={navItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)}>
+    <AppShell phase={phase} navItems={activeNavItems} sessionCount={log.length} dbError={dbError} onDismissError={() => setDbError(null)} viewerMode={viewerMode}>
       <div className="flex items-center justify-center min-h-[60vh]">
         <Btn onClick={newSession}>Start New Session</Btn>
       </div>

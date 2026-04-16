@@ -30,7 +30,7 @@ function MediaViewer({ att, onClose }) {
   );
 }
 
-export function LibraryPage({ log, vars, preFilterSessionIds, onError }) {
+export function LibraryPage({ log, vars, preFilterSessionIds, onError, readOnly }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({});
@@ -144,11 +144,13 @@ export function LibraryPage({ log, vars, preFilterSessionIds, onError }) {
                   <p className="text-[10px] text-muted-foreground truncate">{att.session_name}</p>
                   <p className="export-hide text-[10px] text-muted-foreground">{att.serial} · {new Date(att.created_at).toLocaleDateString()}</p>
                 </div>
-                <button
-                  onClick={e => { e.stopPropagation(); handleDelete(att.id, att.storage_path); }}
-                  className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
-                  ✕
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDelete(att.id, att.storage_path); }}
+                    className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
+                    ✕
+                  </button>
+                )}
               </div>
             );
           })}
