@@ -2462,6 +2462,19 @@ export default function App() {
     setPhase(P.FIRE);
     setTimeout(() => fpsRef.current?.focus(), 100);
   };
+  // Navigate to Analysis pre-loaded with a single session, clearing persisted state
+  const viewSession = (id) => {
+    setViewId(id);
+    setAnalysisSlots([{ id, color: PALETTE[0] }]);
+    setAnalysisLayoutItems(null);
+    setAnalysisWidgetOpts(null);
+    setAnalysisHiddenMetrics(null);
+    setAnalysisTitle(null);
+    setAnalysisLastSavedId(null);
+    setAnalysisLastShareToken(null);
+    setPhase(P.ANALYSIS);
+  };
+
   const viewed = log.find(s => s.id === viewId);
   // ─── Nav items (constructed here so callbacks close over current state) ────
   const navItems = [
@@ -2958,7 +2971,7 @@ export default function App() {
         <div className="flex justify-end items-center mb-6 flex-wrap gap-2">
           <Btn v="secondary" onClick={() => continueSession(s.id)}>Edit</Btn>
           {log.length >= 2 && (
-            <Btn v="secondary" onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }}>Compare</Btn>
+            <Btn v="secondary" onClick={() => viewSession(s.id)}>Compare</Btn>
           )}
           <Btn v="secondary" onClick={() => exportMasterCsv(log, vars)}>Export CSV</Btn>
           <Btn v="secondary" onClick={() => { setLibraryFilterSessionIds([s.id]); setPhase(P.LIBRARY); }}>Library →</Btn>
@@ -4148,9 +4161,9 @@ export default function App() {
                     </div>
                     {/* Actions */}
                     <div className="flex items-center shrink-0 border-l border-border h-full">
-                      <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
+                      <button onClick={() => viewSession(s.id)} className="h-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] cursor-pointer border-none transition-colors" style={{ background: 'transparent', color: '#111118' }} onMouseEnter={e => e.target.style.color=G} onMouseLeave={e => e.target.style.color='#111118'}>View ↗</button>
                       {!viewerMode && <button onClick={() => continueSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Edit</button>}
-                      <button onClick={() => { setViewId(s.id); setPhase(P.ANALYSIS); }} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
+                      <button onClick={() => viewSession(s.id)} className="h-full px-3 py-3 text-[11px] font-medium cursor-pointer border-none border-l border-border transition-colors bg-transparent text-muted-foreground hover:text-foreground">Cmp</button>
                       {!viewerMode && <button onClick={() => { if (confirm("Delete this session?")) delSession(s.id); }} className="h-full px-3 py-3 text-[11px] cursor-pointer border-none border-l border-border transition-colors bg-transparent text-destructive/40 hover:text-destructive">✕</button>}
                     </div>
                   </div>
