@@ -105,7 +105,7 @@ export function calcStats(shots, sessionFields) {
   return { cep, r90, mpiX, mpiY, mr, es, sdR, sdV, meanV, esV, covEllipse, n: v.length, sdX, sdY, fieldStats, hasXY, hasFps };
 }
 
-export function makeSerial(cfg, num, offset) {
-  const prefix = cfg.serialPrefix || `SP1-03 ${cfg.rifleRate || ""}RR`;
+export function makeSerial(cfg, num, offset, vars) {
+  const prefix = cfg.serialPrefix || (vars ? vars.slice(-2).map(v => cfg[v.key] || "").filter(Boolean).join(" ") : `SP1-03 ${cfg.rifleRate || ""}RR`);
   return `${prefix} ${String(offset + num).padStart(2, "0")}`;
 }

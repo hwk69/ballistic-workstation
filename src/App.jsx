@@ -155,7 +155,7 @@ function calcStats(shots, sessionFields) {
   }
   return { cep, r90, mpiX, mpiY, mr, es, sdR, sdV, meanV, esV, covEllipse, n: v.length, sdX, sdY, fieldStats, hasXY, hasFps };
 }
-function makeSerial(cfg,num,offset){const prefix=cfg.serialPrefix||`SP1-03 ${cfg.rifleRate||""}RR`;return`${prefix} ${String(offset+num).padStart(2,"0")}`;}
+function makeSerial(cfg,num,offset,vars){const prefix=cfg.serialPrefix||(vars?vars.slice(-2).map(v=>cfg[v.key]||"").filter(Boolean).join(" "):(`SP1-03 ${cfg.rifleRate||""}RR`));return`${prefix} ${String(offset+num).padStart(2,"0")}`;}
 function esc(v){const s=String(v??"");return s.includes(",")||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;}
 function rowC(a){return a.map(esc).join(",");}
 function dl(t,fn,m){const b=new Blob([t],{type:m}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);}
@@ -1954,7 +1954,7 @@ export default function App() {
   }, []);
   const [hasAttachments, setHasAttachments] = useState(false);
 
-  const existingCount = useMemo(() => log.reduce((c, s) => s.config.rifleRate === cfg.rifleRate ? c + s.shots.length : c, 0), [log, cfg.rifleRate]);
+  const existingCount = 0; // serials always start at 01 per session
   const loadAllData = async () => {
     try {
       const [settings, sessions, comparisons, allAtts] = await Promise.all([
@@ -2167,19 +2167,19 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [continuingSessionId, shots, cfg]);
 
-  // Re-serial all shots when serial prefix or rifleRate changes
+  // Re-serial all shots when serial prefix or config vars change
   const prevSerialKey = useRef("");
+  const serialKeyFromCfg = cfg.serialPrefix || vars.slice(-2).map(v => cfg[v.key] || "").filter(Boolean).join(" ");
   useEffect(() => {
     if (shots.length === 0) return;
-    const key = cfg.serialPrefix || `SP1-03 ${cfg.rifleRate || ""}RR`;
-    if (prevSerialKey.current === key) return;
-    if (prevSerialKey.current === "") { prevSerialKey.current = key; return; } // initial mount
-    prevSerialKey.current = key;
+    if (prevSerialKey.current === serialKeyFromCfg) return;
+    if (prevSerialKey.current === "") { prevSerialKey.current = serialKeyFromCfg; return; } // initial mount
+    prevSerialKey.current = serialKeyFromCfg;
     setShots(prev => prev.map((s, i) => ({
       ...s,
-      serial: makeSerial(cfg, i + 1, 0),
+      serial: makeSerial(cfg, i + 1, 0, vars),
     })));
-  }, [cfg.serialPrefix, cfg.rifleRate, shots.length]);
+  }, [serialKeyFromCfg, shots.length]);
 
   const saveLayoutAll = useCallback(async upd => {
     const c = { layout, dispOpts, cmpMetrics, cmpLayout, cmpSplit, ...upd };
@@ -2316,7 +2316,7 @@ export default function App() {
     // Include notes in data if present
     if (shotNotes.trim()) data.notes = shotNotes.trim();
     // Build shot with legacy fields for backwards compat
-    const serial = makeSerial(cfg, shots.length + 1, existingCount);
+    const serial = makeSerial(cfg, shots.length + 1, existingCount, vars);
     const shot = {
       fps: data.fps ?? null,
       x: data.x ?? null,
@@ -2548,7 +2548,7 @@ export default function App() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
           <div className="flex flex-col">
             <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Serial Prefix</label>
-            <input value={cfg.serialPrefix || ""} onChange={e => up("serialPrefix", e.target.value)} placeholder={`SP1-03 ${cfg.rifleRate||""}RR`} className={inp} />
+            <input value={cfg.serialPrefix || ""} onChange={e => up("serialPrefix", e.target.value)} placeholder={vars.slice(-2).map(v => cfg[v.key] || v.label).filter(Boolean).join(" ")} className={inp} />
           </div>
           <div className="flex flex-col">
             <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</label>
@@ -2557,11 +2557,11 @@ export default function App() {
         </div>
       </CardSection>
 
-      {cfg.rifleRate && (
+      {(cfg.serialPrefix || vars.slice(-2).some(v => cfg[v.key])) && (
         <p className="text-xs text-muted-foreground mb-6 px-0.5">
-          Serial range: <span className="text-primary font-mono">{makeSerial(cfg, 1, existingCount)}</span>
+          Serial range: <span className="text-primary font-mono">{makeSerial(cfg, 1, existingCount, vars)}</span>
           {" → "}
-          <span className="text-primary font-mono">{makeSerial(cfg, total || 1, existingCount)}</span>
+          <span className="text-primary font-mono">{makeSerial(cfg, total || 1, existingCount, vars)}</span>
         </p>
       )}
 
@@ -2600,7 +2600,7 @@ export default function App() {
             <span className="text-lg font-normal text-muted-foreground"> / {total}</span>
           </div>
           <div className="text-muted-foreground text-[11px] mt-1.5 font-mono">
-            Next: {makeSerial(cfg, shots.length + 1, existingCount)}
+            Next: {makeSerial(cfg, shots.length + 1, existingCount, vars)}
           </div>
           {continuingSessionId && (
             <div className={cn("text-[10px] mt-1", saveStatus === "saving" ? "text-yellow-500" : saveStatus === "saved" ? "text-emerald-500" : "text-muted-foreground")}>
