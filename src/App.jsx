@@ -9,6 +9,7 @@ import { Crosshair, BarChart2, History, X, Plus, Paperclip, ChevronDown, Chevron
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { AttachmentWidget, ShotCarousel } from './components/AttachmentWidget.jsx';
 import { LibraryPage } from './components/LibraryPage.jsx';
+import { FilterBar } from './components/FilterBar.jsx';
 import { VelRankingWidget } from './components/VelRankingWidget.jsx';
 import { AccuracyRankingWidget } from './components/AccuracyRankingWidget.jsx';
 import * as db from './lib/db.js';
@@ -4287,7 +4288,6 @@ export default function App() {
 
   // ─── HISTORY ─────────────────────────────────────────────────────────────────
   if (phase === P.HISTORY) {
-    const hasFilters = Object.keys(histFilters).length > 0 || histSearch.trim();
     const histFiltered = [...log]
       .sort((a, b) => histSort === "newest"
         ? new Date(b.date) - new Date(a.date)
@@ -4308,59 +4308,21 @@ export default function App() {
           </Empty>
         ) : (
           <>
-            {/* Filter bar */}
-            <div className="mb-5">
-              <div className="flex gap-2 mb-3">
-                <input
-                  value={histSearch}
-                  onChange={e => setHistSearch(e.target.value)}
-                  placeholder="Search by session name…"
-                  className={cn(inp, "text-sm flex-1")}
-                />
-                <button
-                  onClick={() => setHistSort(s => s === "newest" ? "oldest" : "newest")}
-                  className="text-[11px] font-semibold px-3 py-1 border cursor-pointer transition-all duration-100 shrink-0"
-                  style={{ background: '#111118', color: G, borderColor: '#111118' }}>
-                  {histSort === "newest" ? "Newest ↓" : "Oldest ↑"}
-                </button>
-              </div>
-              {vars.length > 0 && (
-                <div className="flex flex-wrap gap-y-2 gap-x-5">
-                  {vars.map(v => {
-                    const options = [...new Set(log.map(s => s.config[v.key]).filter(Boolean))];
-                    if (!options.length) return null;
-                    return (
-                      <div key={v.key} className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground/50 mr-1">{v.label}</span>
-                        {options.map(opt => {
-                          const active = histFilters[v.key] === opt;
-                          return (
-                            <button
-                              key={opt}
-                              onClick={() => setHistFilters(f => f[v.key] === opt ? (({ [v.key]: _, ...rest }) => rest)(f) : { ...f, [v.key]: opt })}
-                              className="text-[11px] font-semibold px-2.5 py-1 border cursor-pointer transition-all duration-100"
-                              style={{
-                                background: active ? '#111118' : '#fff',
-                                color: active ? G : '#6b6b7e',
-                                borderColor: active ? '#111118' : '#e2e2e8',
-                              }}>
-                              {opt}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                  {hasFilters && (
-                    <button
-                      onClick={() => { setHistFilters({}); setHistSearch(""); }}
-                      className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none transition-colors self-center">
-                      Clear
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            <FilterBar
+              searchValue={histSearch}
+              onSearchChange={setHistSearch}
+              searchPlaceholder="Search by session name…"
+              sort={histSort}
+              onSortChange={setHistSort}
+              sortOptions={[{ value: "newest", label: "Newest ↓" }, { value: "oldest", label: "Oldest ↑" }]}
+              filters={histFilters}
+              onFiltersChange={setHistFilters}
+              filterDefs={vars.map(v => ({
+                key: v.key,
+                label: v.label,
+                options: [...new Set(log.map(s => s.config[v.key]).filter(Boolean))].sort(),
+              })).filter(def => def.options.length > 0)}
+            />
 
             {histFiltered.length === 0 ? (
               <Empty icon={<History size={18} />}>No sessions match the current filters.</Empty>
