@@ -301,10 +301,15 @@ function Toggle({ label, on, onToggle, color }) {
   );
 }
 
-function SmartSelect({ label, value, onChange, options, onAddOption }) {
+function SmartSelect({ label, value, onChange, options, onAddOption, onRemoveOption }) {
   const [adding, setAdding] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [nv, setNv] = useState("");
   const add = () => { const v = nv.trim(); if (!v) return; if (options.some(o => o.toLowerCase() === v.toLowerCase())) { onChange(options.find(o => o.toLowerCase() === v.toLowerCase())); setNv(""); setAdding(false); return; } onAddOption(v); onChange(v); setNv(""); setAdding(false); };
+  const handleRemove = (opt) => {
+    if (!confirm(`Remove saved value "${opt}" from ${label}?`)) return;
+    onRemoveOption?.(opt);
+  };
   return (
     <div className="flex flex-col">
       <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
@@ -324,6 +329,26 @@ function SmartSelect({ label, value, onChange, options, onAddOption }) {
           </select>
           <button onClick={() => setAdding(true)} title="Add option"
             className="px-2.5 text-lg font-light text-primary cursor-pointer bg-transparent border-none shrink-0 leading-none">+</button>
+          {onRemoveOption && options.length > 0 && (
+            <button onClick={() => setManaging(m => !m)} title="Manage saved values"
+              className={`px-1.5 text-xs cursor-pointer bg-transparent border-none shrink-0 ${managing ? 'text-primary font-bold' : 'text-muted-foreground hover:text-foreground'}`}>✎</button>
+          )}
+        </div>
+      )}
+      {managing && !adding && onRemoveOption && options.length > 0 && (
+        <div className="mt-1.5 rounded border border-border bg-secondary/40 p-1.5 flex flex-col gap-1">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 pb-0.5">Saved values</div>
+          {options.map(o => (
+            <div key={o} className="flex items-center justify-between gap-1 px-1.5 py-0.5 text-xs">
+              <span className="truncate">{o}</span>
+              <button onClick={() => handleRemove(o)} title={`Delete "${o}"`}
+                className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded border border-border bg-background hover:bg-destructive hover:text-white hover:border-destructive cursor-pointer transition-colors">
+                Delete
+              </button>
+            </div>
+          ))}
+          <button onClick={() => setManaging(false)}
+            className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none self-end px-1 pt-0.5">Done</button>
         </div>
       )}
     </div>
@@ -2415,6 +2440,16 @@ export default function App() {
       return n;
     });
   }, []);
+  const removeOption = useCallback(async (key, val) => {
+    setOpts(p => {
+      const existing = p[key] || [];
+      const n = { ...p, [key]: existing.filter(o => o !== val) };
+      db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message));
+      return n;
+    });
+    // If current config uses the removed value, clear it
+    setCfg(p => p[key] === val ? { ...p, [key]: "" } : p);
+  }, []);
   const addVar = async () => { if (!newVarName.trim()) return; const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_"); if (vars.find(v => v.key === key)) return; const nv = [...vars, { key, label: newVarName.trim(), core: false }]; setVars(nv); await db.saveSettings({ vars: nv }); setOpts(p => { const n = { ...p, [key]: [] }; db.saveSettings({ opts: n }).catch(err => setDbError('Options save failed: ' + err.message)); return n; }); setNewVarName(""); setAdding(false); };
   const removeVar = async key => { setVars(p => { const n = p.filter(v => v.key !== key); db.saveSettings({ vars: n }).catch(err => setDbError('Var save failed: ' + err.message)); return n; }); };
   const updateFields = useCallback(async (newFields) => {
@@ -2557,7 +2592,16 @@ export default function App() {
     setViewId(continuingSessionId);
     setPhase(P.ANALYSIS);
   };
-  const newSession = () => { setContinuingSessionId(null); setSaveStatus("saved"); setPhase(P.SETUP); setShots([]); setCur(Object.fromEntries(fields.map(f => [f.key, ""]))); setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] })); };
+  const newSession = () => {
+    setContinuingSessionId(null);
+    setSaveStatus("saved");
+    setPhase(P.SETUP);
+    setShots([]);
+    setCur(Object.fromEntries(fields.map(f => [f.key, ""])));
+    setShotNotes("");
+    setPendingAttachments({});
+    setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] }));
+  };
   const delSession = async id => {
     try {
       await db.deleteSession(id);
@@ -2587,6 +2631,8 @@ export default function App() {
     setShots(s.shots.map(sh => ({ ...sh })));
     const sessionFields = s.config.fields || fields;
     setCur(Object.fromEntries(sessionFields.map(f => [f.key, ""])));
+    setShotNotes("");
+    setPendingAttachments({});
     setContinuingSessionId(id);
     setPhase(P.FIRE);
     setTimeout(() => fpsRef.current?.focus(), 100);
@@ -2641,7 +2687,7 @@ export default function App() {
       <CardSection title="Configuration" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {vars.map(vr => (
-            <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
+            <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} onRemoveOption={v => removeOption(vr.key, v)} />
           ))}
           <div className="flex flex-col">
             <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shot Count</label>
@@ -2773,7 +2819,7 @@ export default function App() {
           <div className="px-5 pb-5 border-t border-border">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
               {vars.map(vr => (
-                <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} />
+                <SmartSelect key={vr.key} label={vr.label} value={cfg[vr.key] || ""} onChange={v => up(vr.key, v)} options={opts[vr.key] || []} onAddOption={v => addOption(vr.key, v)} onRemoveOption={v => removeOption(vr.key, v)} />
               ))}
               {[["Session Name","sessionName","text"],["Date","date","date"],["Notes","notes","text"],["Serial Prefix","serialPrefix","text"]].map(([lb,k,t]) => (
                 <div key={k} className="flex flex-col">
