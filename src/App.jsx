@@ -1936,6 +1936,15 @@ export default function App() {
   const matrixLoadRef = useRef();
   const originalMatrixShared = useRef(null); // stores original shared matrix state for viewer reset
 
+  // ─── Persisted Analysis state (survives navigation away and back) ─────────
+  const [analysisSlots, setAnalysisSlots] = useState(null); // null = uninitialized (let AnalysisPage pick default)
+  const [analysisLayoutItems, setAnalysisLayoutItems] = useState(null);
+  const [analysisWidgetOpts, setAnalysisWidgetOpts] = useState(null);
+  const [analysisHiddenMetrics, setAnalysisHiddenMetrics] = useState(null);
+  const [analysisTitle, setAnalysisTitle] = useState(null);
+  const [analysisLastSavedId, setAnalysisLastSavedId] = useState(null);
+  const [analysisLastShareToken, setAnalysisLastShareToken] = useState(null);
+
   // Close matrix load menu on outside click
   useEffect(() => {
     if (!matrixLoadMenuOpen) return;
@@ -2907,6 +2916,22 @@ export default function App() {
           onExportCsv={() => exportMasterCsv(log, vars)}
           readOnly={viewerMode}
           sharedComparison={sharedComparisonData}
+          persistedSlots={analysisSlots}
+          persistedLayoutItems={analysisLayoutItems}
+          persistedWidgetOpts={analysisWidgetOpts}
+          persistedHiddenMetrics={analysisHiddenMetrics}
+          persistedTitle={analysisTitle}
+          persistedLastSavedId={analysisLastSavedId}
+          persistedLastShareToken={analysisLastShareToken}
+          onPersist={(state) => {
+            setAnalysisSlots(state.slots);
+            setAnalysisLayoutItems(state.layoutItems);
+            setAnalysisWidgetOpts(state.widgetOpts);
+            setAnalysisHiddenMetrics(state.hiddenMetrics);
+            setAnalysisTitle(state.title);
+            setAnalysisLastSavedId(state.lastSavedId);
+            setAnalysisLastShareToken(state.lastShareToken);
+          }}
         />
       </AppShell>
     );

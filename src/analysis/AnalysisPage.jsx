@@ -1343,17 +1343,18 @@ function AddWidgetDropdown({ available, registry, onAdd, dropUp }) {
 // ─── MAIN ANALYSIS PAGE ──────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function AnalysisPage({ log, vars, fields, viewId, savedComparisons, onContinueSession, onError, onExportCsv, readOnly, sharedComparison }) {
+export default function AnalysisPage({ log, vars, fields, viewId, savedComparisons, onContinueSession, onError, onExportCsv, readOnly, sharedComparison, persistedSlots, persistedLayoutItems, persistedWidgetOpts, persistedHiddenMetrics, persistedTitle, persistedLastSavedId, persistedLastShareToken, onPersist }) {
   // ─── Session selection state ────────────────────────────────────────────────
   const [slots, setSlots] = useState(() => {
     if (sharedComparison?.slots?.length) return sharedComparison.slots;
+    if (persistedSlots !== null && persistedSlots !== undefined) return persistedSlots;
     if (viewId) return [{ id: viewId, color: PALETTE[0] }];
     return [];
   });
 
-  // Update slots when viewId changes from outside
+  // Update slots when viewId changes from outside (only when no persisted/shared state)
   useEffect(() => {
-    if (viewId && !slots.some((s) => s.id === viewId)) {
+    if (viewId && !slots.some((s) => s.id === viewId) && !sharedComparison && !persistedSlots) {
       setSlots([{ id: viewId, color: PALETTE[0] }]);
     }
   }, [viewId]);
@@ -1381,11 +1382,27 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   }, []);
 
   // ─── Layout state ──────────────────────────────────────────────────────────
-  const [layoutItems, setLayoutItems] = useState(() => sharedComparison?.widgets?.length ? sharedComparison.widgets : null);
-  const [widgetOpts, setWidgetOpts] = useState(() => sharedComparison?.by ? { showGrid: true, ...sharedComparison.by } : { showGrid: true });
+  const [layoutItems, setLayoutItems] = useState(() => {
+    if (sharedComparison?.widgets?.length) return sharedComparison.widgets;
+    if (persistedLayoutItems !== null && persistedLayoutItems !== undefined) return persistedLayoutItems;
+    return null;
+  });
+  const [widgetOpts, setWidgetOpts] = useState(() => {
+    if (sharedComparison?.by) return { showGrid: true, ...sharedComparison.by };
+    if (persistedWidgetOpts !== null && persistedWidgetOpts !== undefined) return persistedWidgetOpts;
+    return { showGrid: true };
+  });
   const [newlyAdded, setNewlyAdded] = useState(new Set());
-  const [hiddenMetrics, setHiddenMetrics] = useState(() => sharedComparison?.metrics?.length ? new Set(sharedComparison.metrics) : new Set());
-  const [analysisTitle, setAnalysisTitle] = useState(sharedComparison?.title || "");
+  const [hiddenMetrics, setHiddenMetrics] = useState(() => {
+    if (sharedComparison?.metrics?.length) return new Set(sharedComparison.metrics);
+    if (persistedHiddenMetrics !== null && persistedHiddenMetrics !== undefined) return persistedHiddenMetrics;
+    return new Set();
+  });
+  const [analysisTitle, setAnalysisTitle] = useState(() => {
+    if (sharedComparison?.title) return sharedComparison.title;
+    if (persistedTitle !== null && persistedTitle !== undefined) return persistedTitle;
+    return "";
+  });
   const [sessionPickerOpen, setSessionPickerOpen] = useState(true);
   const exportRef = useRef();
 
@@ -1393,13 +1410,18 @@ export default function AnalysisPage({ log, vars, fields, viewId, savedCompariso
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [loadMenuOpen, setLoadMenuOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved"
-  const [lastSavedId, setLastSavedId] = useState(null);
-  const [lastShareToken, setLastShareToken] = useState(null);
+  const [lastSavedId, setLastSavedId] = useState(persistedLastSavedId || null);
+  const [lastShareToken, setLastShareToken] = useState(persistedLastShareToken || null);
   const loadRef = useRef();
 
-  // Fetch saved analyses on mount
+  // ─── Persist state to parent on every change ─────────────────────────────
   useEffect(() => {
-    db.getComparisons().then(setSavedAnalyses).catch(() => {});
+    onPersist?.({ slots, layoutItems, widgetOpts, hiddenMetrics, title: analysisTitle, lastSavedId, lastShareToken });
+  }, [slots, layoutItems, widgetOpts, hiddenMetrics, analysisTitle, lastSavedId, lastShareToken]);
+
+  // Fetch saved analyses on mount (exclude matrix saves)
+  useEffect(() => {
+    db.getComparisons().then(all => setSavedAnalyses(all.filter(a => a.by?.type !== "matrix"))).catch(() => {});
   }, []);
 
   // Close load menu on outside click
