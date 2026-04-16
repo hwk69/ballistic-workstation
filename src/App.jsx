@@ -445,11 +445,12 @@ function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, o
 }
 
 // ─── Shot Attachment Manager (edit mode inline) ───────────────────────────────
-// Shows thumbnails of existing attachments with replace/delete, plus an Add button.
+// Shows clickable thumbnails (opens viewer) with labeled Replace / Delete buttons.
 function ShotAttachManager({ shotId, sessionId, serial, onError }) {
   const [atts, setAtts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [viewerIdx, setViewerIdx] = useState(null);
   const addRef = useRef();
   const replaceRefs = useRef({});
 
@@ -503,51 +504,72 @@ function ShotAttachManager({ shotId, sessionId, serial, onError }) {
   const isVideo = (att) => att.file_type?.startsWith('video/');
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap py-0.5">
-      {loading && <span className="text-[10px] text-muted-foreground">Loading…</span>}
-      {atts.map(att => (
-        <div key={att.id} className="group relative size-10 rounded-md overflow-hidden border border-border shrink-0 cursor-pointer"
-          title={att.file_name}>
-          {isImage(att)
-            ? <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
-            : <div className="w-full h-full flex items-center justify-center bg-secondary text-sm">
-                {isVideo(att) ? '▶' : '📎'}
-              </div>
-          }
-          {/* Hover overlay with Replace / Delete */}
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+    <>
+      <div className="flex items-start gap-2 flex-wrap py-1">
+        {loading && <span className="text-[10px] text-muted-foreground self-center">Loading…</span>}
+        {atts.map((att, i) => (
+          <div key={att.id} className="flex flex-col items-center gap-1 shrink-0">
+            {/* Clickable thumbnail → opens viewer */}
             <button
-              title="Replace"
-              onClick={() => replaceRefs.current[att.id]?.click()}
-              className="size-5 rounded bg-white/20 hover:bg-[#FFDF00]/80 text-white hover:text-black flex items-center justify-center cursor-pointer border-none transition-colors text-[10px] font-bold">
-              ↺
+              type="button"
+              onClick={() => setViewerIdx(i)}
+              title={`View ${att.file_name}`}
+              className="size-14 rounded-md overflow-hidden border border-border cursor-pointer bg-secondary p-0 hover:border-[#FFDF00] transition-colors">
+              {isImage(att)
+                ? <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center text-xl">
+                    {isVideo(att) ? '▶' : '📎'}
+                  </div>
+              }
             </button>
-            <button
-              title="Delete"
-              onClick={() => handleDelete(att)}
-              className="size-5 rounded bg-white/20 hover:bg-destructive/80 text-white flex items-center justify-center cursor-pointer border-none transition-colors text-[10px]">
-              ✕
-            </button>
+            {/* Labeled action buttons below thumbnail */}
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => replaceRefs.current[att.id]?.click()}
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-border bg-background hover:bg-[#FFDF00] hover:border-[#FFDF00] hover:text-black text-muted-foreground hover:text-black cursor-pointer transition-colors leading-tight">
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(att)}
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-border bg-background hover:bg-destructive hover:border-destructive hover:text-white text-muted-foreground cursor-pointer transition-colors leading-tight">
+                Delete
+              </button>
+            </div>
+            <input
+              ref={el => replaceRefs.current[att.id] = el}
+              type="file"
+              accept="image/*,video/*,.pdf"
+              className="hidden"
+              onChange={(e) => handleReplace(att, e)}
+            />
           </div>
-          <input
-            ref={el => replaceRefs.current[att.id] = el}
-            type="file"
-            accept="image/*,video/*,.pdf"
-            className="hidden"
-            onChange={(e) => handleReplace(att, e)}
-          />
+        ))}
+        {/* Add button */}
+        <div className="flex flex-col items-center gap-1 shrink-0">
+          <input ref={addRef} type="file" multiple accept="image/*,video/*,.pdf" className="hidden" onChange={handleAdd} />
+          <button
+            type="button"
+            onClick={() => addRef.current?.click()}
+            disabled={uploading || !shotId}
+            title={`Add attachment to ${serial}`}
+            className="size-14 rounded-md border border-dashed border-border flex items-center justify-center cursor-pointer bg-transparent hover:bg-secondary/60 hover:border-[#FFDF00] transition-colors disabled:opacity-40 text-muted-foreground hover:text-foreground">
+            {uploading ? <span className="text-xs">…</span> : <Paperclip size={16} />}
+          </button>
+          <span className="text-[9px] font-semibold text-muted-foreground leading-tight">Add</span>
         </div>
-      ))}
-      {/* Add button */}
-      <input ref={addRef} type="file" multiple accept="image/*,video/*,.pdf" className="hidden" onChange={handleAdd} />
-      <button
-        onClick={() => addRef.current?.click()}
-        disabled={uploading || !shotId}
-        title={`Add attachment to ${serial}`}
-        className="size-10 rounded-md border border-dashed border-border flex items-center justify-center cursor-pointer bg-transparent hover:bg-secondary/60 transition-colors disabled:opacity-40 text-muted-foreground hover:text-foreground shrink-0">
-        {uploading ? <span className="text-[10px]">…</span> : <Paperclip size={12} />}
-      </button>
-    </div>
+      </div>
+      {/* Viewer overlay */}
+      {viewerIdx !== null && atts[viewerIdx] && (
+        <ShotCarousel
+          attachments={atts}
+          title={serial}
+          startIdx={viewerIdx}
+          onClose={() => setViewerIdx(null)}
+        />
+      )}
+    </>
   );
 }
 

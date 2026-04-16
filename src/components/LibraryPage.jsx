@@ -32,19 +32,19 @@ function LibraryCard({ att, isImage, isVideo, readOnly, onView, onDelete, onRepl
       </div>
       {!readOnly && (
         <>
-          {/* Replace button */}
+          {/* Replace button — visible text label on hover */}
           <button
             onClick={e => { e.stopPropagation(); replaceRef.current?.click(); }}
-            title="Replace file"
-            className="export-hide absolute top-1.5 left-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-[#FFDF00]/80 hover:text-black font-bold">
-            ↺
+            className="export-hide absolute top-1.5 left-1.5 h-6 px-2 rounded bg-black/70 text-white text-[10px] font-semibold tracking-wide flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-[#FFDF00] hover:text-black">
+            <span aria-hidden>↺</span>
+            <span>Replace</span>
           </button>
-          {/* Delete button */}
+          {/* Delete button — visible text label on hover */}
           <button
             onClick={e => { e.stopPropagation(); onDelete(); }}
-            title="Delete file"
-            className="export-hide absolute top-1.5 right-1.5 size-5 rounded bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive/80">
-            ✕
+            className="export-hide absolute top-1.5 right-1.5 h-6 px-2 rounded bg-black/70 text-white text-[10px] font-semibold tracking-wide flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none hover:bg-destructive">
+            <span aria-hidden>✕</span>
+            <span>Delete</span>
           </button>
           <input
             ref={replaceRef}
