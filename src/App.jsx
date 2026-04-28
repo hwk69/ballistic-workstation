@@ -2713,7 +2713,10 @@ export default function App() {
     setCur(Object.fromEntries(fields.map(f => [f.key, ""])));
     setShotNotes("");
     setPendingAttachments({});
-    setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0] }));
+    // Clear cfg.fields too — otherwise field list from a previously continued
+    // session would shadow the global default and any fields added on Setup
+    // would not appear on Fire.
+    setCfg(p => ({ ...p, sessionName: "", notes: "", date: new Date().toISOString().split("T")[0], fields: undefined }));
   };
   const delSession = async id => {
     try {
@@ -2842,7 +2845,15 @@ export default function App() {
         </div>
       </CardSection>
 
-      <MeasurementFieldsCard fields={fields} onUpdate={updateFields} customPresets={customPresets} onAddCustomPreset={addCustomPreset} onRemoveCustomPreset={removeCustomPreset} />
+      {/* Setup edits this session's measurement fields. We also save the result
+          back to global defaults so future new sessions inherit it, matching
+          the user's expectation that adding a field on Setup "sticks". */}
+      <MeasurementFieldsCard
+        fields={cfg.fields || fields}
+        onUpdate={nf => { updateFields(nf); up("fields", nf); setCur(Object.fromEntries(nf.map(f => [f.key, ""]))); }}
+        customPresets={customPresets}
+        onAddCustomPreset={addCustomPreset}
+        onRemoveCustomPreset={removeCustomPreset} />
 
       <CardSection title="Session Details" className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
