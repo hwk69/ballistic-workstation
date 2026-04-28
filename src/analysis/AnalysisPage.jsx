@@ -693,6 +693,7 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
               {sf.map((f) => (
                 <th key={f.key} className={cn("text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5", f.type === "number" ? "text-right" : "text-left")}>{f.label}</th>
               ))}
+              <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">Notes</th>
               <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-left">Time</th>
               <th className="text-foreground/70 font-bold uppercase text-[11px] tracking-wide px-2.5 py-1.5 text-center w-10">
                 <Paperclip size={11} className="inline-block" />
@@ -716,6 +717,7 @@ function ShotTableWidget({ resolved, mode, commonFields }) {
                     else if (val !== null && val !== undefined) display = String(val);
                     return <td key={f.key} className={cn("px-2.5 py-1.5", f.type === "number" ? "text-foreground text-right font-mono" : "text-foreground")}>{display || "\u2014"}</td>;
                   })}
+                  <td className="text-foreground/80 px-2.5 py-1.5 text-xs max-w-[200px] truncate" title={(s.data || s).notes || ""}>{(s.data || s).notes || <span className="text-muted-foreground/30">—</span>}</td>
                   <td className="text-foreground/60 px-2.5 py-1.5">{s.timestamp}</td>
                   <td className="px-2.5 py-1.5 text-center">
                     {shotAtts.length > 0 ? (
