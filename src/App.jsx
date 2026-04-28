@@ -422,16 +422,26 @@ function ColorPicker({ color, onChange }) {
   );
 }
 
+// Module-level cache of attachment counts keyed by shotId. Survives component
+// remounts (e.g., when an edit-mode ShotAttachManager unmounts and a view-mode
+// ShotAttachBtn mounts in its place) so the icon doesn't flash gray during
+// the async re-fetch. Updated by both ShotAttachBtn and ShotAttachManager.
+const shotAttCountCache = new Map();
+
 function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, onError }) {
   const fileRef = useRef();
   const [uploading, setUploading] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
-  const [dbCount, setDbCount] = useState(0);
+  // Initialize from cache so we don't briefly render gray while the fetch runs.
+  const [dbCount, setDbCount] = useState(() => (shotId ? shotAttCountCache.get(shotId) ?? 0 : 0));
 
-  // Load existing attachment count from DB when shotId is available
+  // Background-refresh the count whenever shotId changes.
   useEffect(() => {
     if (!shotId) return;
-    db.getAttachments({ shotId }).then(atts => setDbCount(atts.length)).catch(() => {});
+    db.getAttachments({ shotId }).then(atts => {
+      setDbCount(atts.length);
+      shotAttCountCache.set(shotId, atts.length);
+    }).catch(() => {});
   }, [shotId]);
 
   const total = pendingCount + doneCount + dbCount;
@@ -445,6 +455,8 @@ function ShotAttachBtn({ shotId, sessionId, serial, pendingCount = 0, onQueue, o
     try {
       for (const file of files) await db.uploadAttachment(file, shotId, sessionId);
       setDoneCount(c => c + files.length);
+      // Keep the cache in sync so any re-rendered sibling icons stay correct.
+      if (shotId) shotAttCountCache.set(shotId, (shotAttCountCache.get(shotId) ?? 0) + files.length);
     } catch (err) {
       onError?.('Upload failed: ' + err.message);
     } finally {
@@ -484,10 +496,20 @@ function ShotAttachManager({ shotId, sessionId, serial, onError }) {
     if (!shotId) return;
     setLoading(true);
     db.getAttachments({ shotId })
-      .then(setAtts)
+      .then(list => {
+        setAtts(list);
+        shotAttCountCache.set(shotId, list.length);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [shotId]);
+
+  // Keep the shared cache in sync with whatever this manager has loaded so the
+  // view-mode ShotAttachBtn that mounts after edit-save shows the correct count
+  // immediately (no gray flicker).
+  useEffect(() => {
+    if (shotId) shotAttCountCache.set(shotId, atts.length);
+  }, [shotId, atts.length]);
 
   const handleAdd = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -1676,6 +1698,41 @@ function TblInput({ value, onChange }) {
   );
 }
 
+// Polymorphic inline edit cell — handles all field types in shot edit row.
+function EditCell({ field, value, onChange }) {
+  const baseCls = "w-full rounded bg-secondary border border-border px-1.5 py-0.5 text-xs text-foreground";
+  if (!field || field.type === "number") {
+    return (
+      <input type="number" value={value ?? ""} onChange={e => onChange(e.target.value)}
+        className={`${baseCls} text-right font-mono`} />
+    );
+  }
+  if (field.type === "yesno") {
+    // Stored as boolean (true/false) or null. Edit value uses "yes"/"no"/"" strings.
+    const v = value === true ? "yes" : value === false ? "no" : (value ?? "");
+    return (
+      <select value={v} onChange={e => onChange(e.target.value)} className={`${baseCls} text-left`}>
+        <option value="">—</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    );
+  }
+  if (field.type === "dropdown") {
+    return (
+      <select value={value ?? ""} onChange={e => onChange(e.target.value)} className={`${baseCls} text-left`}>
+        <option value="">—</option>
+        {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+    );
+  }
+  // text and any other types fall back to text input
+  return (
+    <input type="text" value={value ?? ""} onChange={e => onChange(e.target.value)}
+      className={`${baseCls} text-left`} />
+  );
+}
+
 // ─── Measurement Fields Card ────────────────────────────────────────────────
 function MeasurementFieldsCard({ fields, onUpdate, customPresets = [], onAddCustomPreset, onRemoveCustomPreset }) {
   const [adding, setAdding] = useState(false);
@@ -2560,7 +2617,9 @@ export default function App() {
       (async () => {
         try {
           const name = cfg.sessionName || vars.map(v => cfg[v.key]).filter(Boolean).join(" | ");
-          const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields }, shots: [shot] });
+          // Use cfg.fields (which includes any Setup-added measurement fields) — falling back to global fields only if Setup never touched them.
+          const sessionFields = cfg.fields || fields;
+          const saved = await db.saveSession({ config: { ...cfg, sessionName: name, fields: sessionFields }, shots: [shot] });
           // Upload any attachments that were staged before Record was pressed.
           // Use the locally-known stagedFiles directly — the pendingAttachments
           // state closure is stale here because setPendingAttachments above hasn't
@@ -2634,7 +2693,16 @@ export default function App() {
   const delShot = i => setShots(p => p.filter((_, j) => j !== i).map((s, j) => ({ ...s, shotNum: j + 1 })));
   const finishSession = () => {
     if (!continuingSessionId) return; // Can't view results if session hasn't been saved yet
+    // Open Analysis fresh on the just-fired session — clear any persisted state
+    // from a previously viewed session so it doesn't shadow this one.
     setViewId(continuingSessionId);
+    setAnalysisSlots([{ id: continuingSessionId, color: PALETTE[0] }]);
+    setAnalysisLayoutItems(null);
+    setAnalysisWidgetOpts(null);
+    setAnalysisHiddenMetrics(null);
+    setAnalysisTitle(null);
+    setAnalysisLastSavedId(null);
+    setAnalysisLastShareToken(null);
     setPhase(P.ANALYSIS);
   };
   const newSession = () => {
@@ -3066,11 +3134,11 @@ export default function App() {
                             <td className="text-muted-foreground px-2 py-1.5 font-mono text-[11px]">{s.serial}</td>
                             {sf.map(f => (
                               <td key={f.key} className="px-1.5 py-1">
-                                <TblInput value={editVal[f.key] ?? ""} onChange={e => setEditVal(p => ({ ...p, [f.key]: e.target.value }))} />
+                                <EditCell field={f} value={editVal[f.key]} onChange={v => setEditVal(p => ({ ...p, [f.key]: v }))} />
                               </td>
                             ))}
                             <td className="px-1.5 py-1">
-                              <TblInput value={editVal._notes ?? ""} onChange={e => setEditVal(p => ({ ...p, _notes: e.target.value }))} />
+                              <EditCell field={{ type: "text" }} value={editVal._notes ?? ""} onChange={v => setEditVal(p => ({ ...p, _notes: v }))} />
                             </td>
                             <td className="text-muted-foreground px-2 py-1.5">{s.timestamp}</td>
                             <td className="px-2 py-1.5 min-w-[120px]">
